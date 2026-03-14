@@ -1,0 +1,13 @@
+# Target labels
+ enc_bootloader
+# Source files and their labels
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/CMakeFiles/enc_bootloader
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/CMakeFiles/enc_bootloader.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/CMakeFiles/enc_bootloader-complete.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/enc_bootloader/src/enc_bootloader-stamp/enc_bootloader-build.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/enc_bootloader/src/enc_bootloader-stamp/enc_bootloader-configure.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/enc_bootloader/src/enc_bootloader-stamp/enc_bootloader-download.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/enc_bootloader/src/enc_bootloader-stamp/enc_bootloader-install.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/enc_bootloader/src/enc_bootloader-stamp/enc_bootloader-mkdir.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/enc_bootloader/src/enc_bootloader-stamp/enc_bootloader-patch.rule
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-build/enc_bootloader/src/enc_bootloader-stamp/enc_bootloader-update.rule

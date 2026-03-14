@@ -1,0 +1,163 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:16 (project)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/Users/yangwenhaomac/.codex/tmp/arg0/codex-arg0inh6pU/"
+      - "/opt/homebrew/opt/bison/bin/"
+      - "/Applications/Docker.app/Contents/Resources/bin/"
+      - "/opt/anaconda3/condabin/"
+      - "/opt/homebrew/bin/"
+      - "/opt/homebrew/sbin/"
+      - "/opt/local/bin/"
+      - "/opt/local/sbin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/opt/X11/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/Library/TeX/texbin/"
+      - "/Users/yangwenhaomac/.vscode/extensions/openai.chatgpt-26.5311.21342-darwin-arm64/bin/macos-aarch64/"
+    searched_directories:
+      - "/Users/yangwenhaomac/.codex/tmp/arg0/codex-arg0inh6pU/uname"
+      - "/opt/homebrew/opt/bison/bin/uname"
+      - "/Applications/Docker.app/Contents/Resources/bin/uname"
+      - "/opt/anaconda3/condabin/uname"
+      - "/opt/homebrew/bin/uname"
+      - "/opt/homebrew/sbin/uname"
+      - "/opt/local/bin/uname"
+      - "/opt/local/sbin/uname"
+      - "/usr/local/bin/uname"
+      - "/System/Cryptexes/App/usr/bin/uname"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{PATH}:
+        - "/Users/yangwenhaomac/.codex/tmp/arg0/codex-arg0inh6pU"
+        - "/opt/homebrew/opt/bison/bin"
+        - "/Applications/Docker.app/Contents/Resources/bin"
+        - "/opt/anaconda3/condabin"
+        - "/opt/homebrew/bin"
+        - "/opt/homebrew/sbin"
+        - "/opt/local/bin"
+        - "/opt/local/sbin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/opt/X11/bin"
+        - "/Library/Apple/usr/bin"
+        - "/Library/TeX/texbin"
+        - "/Users/yangwenhaomac/.vscode/extensions/openai.chatgpt-26.5311.21342-darwin-arm64/bin/macos-aarch64"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:16 (project)"
+    message: |
+      The system is: Darwin - 23.5.0 - arm64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/Platform/Darwin.cmake:76 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInformation.cmake:32 (include)"
+      - "CMakeLists.txt:16 (project)"
+    mode: "program"
+    variable: "CMAKE_INSTALL_NAME_TOOL"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "install_name_tool"
+    candidate_directories:
+      - "/Users/yangwenhaomac/.codex/tmp/arg0/codex-arg0inh6pU/"
+      - "/opt/homebrew/opt/bison/bin/"
+      - "/Applications/Docker.app/Contents/Resources/bin/"
+      - "/opt/anaconda3/condabin/"
+      - "/opt/homebrew/bin/"
+      - "/opt/homebrew/sbin/"
+      - "/opt/local/bin/"
+      - "/opt/local/sbin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/opt/X11/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/Library/TeX/texbin/"
+      - "/Users/yangwenhaomac/.vscode/extensions/openai.chatgpt-26.5311.21342-darwin-arm64/bin/macos-aarch64/"
+    searched_directories:
+      - "/Users/yangwenhaomac/.codex/tmp/arg0/codex-arg0inh6pU/install_name_tool"
+      - "/opt/homebrew/opt/bison/bin/install_name_tool"
+      - "/Applications/Docker.app/Contents/Resources/bin/install_name_tool"
+      - "/opt/anaconda3/condabin/install_name_tool"
+      - "/opt/homebrew/bin/install_name_tool"
+      - "/opt/homebrew/sbin/install_name_tool"
+      - "/opt/local/bin/install_name_tool"
+      - "/opt/local/sbin/install_name_tool"
+      - "/usr/local/bin/install_name_tool"
+      - "/System/Cryptexes/App/usr/bin/install_name_tool"
+    found: "/usr/bin/install_name_tool"
+    search_context:
+      ENV{PATH}:
+        - "/Users/yangwenhaomac/.codex/tmp/arg0/codex-arg0inh6pU"
+        - "/opt/homebrew/opt/bison/bin"
+        - "/Applications/Docker.app/Contents/Resources/bin"
+        - "/opt/anaconda3/condabin"
+        - "/opt/homebrew/bin"
+        - "/opt/homebrew/sbin"
+        - "/opt/local/bin"
+        - "/opt/local/sbin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/opt/X11/bin"
+        - "/Library/Apple/usr/bin"
+        - "/Library/TeX/texbin"
+        - "/Users/yangwenhaomac/.vscode/extensions/openai.chatgpt-26.5311.21342-darwin-arm64/bin/macos-aarch64"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+...

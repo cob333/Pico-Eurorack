@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader/_deps/picotool-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

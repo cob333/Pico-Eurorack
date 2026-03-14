@@ -1,0 +1,165 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//bazel:defs.bzl", "otp_header_parse", "picotool_binary_data_header")
+
+package(default_visibility = ["//visibility:public"])
+
+PICOTOOL_SDK_VERSION_STRING = module_version() if module_version() != None else "0.0.1-WORKSPACE"
+
+# TODO: Make it possible to build the prebuilt from source.
+picotool_binary_data_header(
+    name = "xip_ram_perms_elf",
+    src = "//xip_ram_perms:xip_ram_perms_prebuilt",
+    out = "xip_ram_perms_elf.h",
+)
+
+# TODO: Make it possible to build the prebuilt from source.
+picotool_binary_data_header(
+    name = "enc_bootloader_elf",
+    src = "//enc_bootloader:enc_bootloader_prebuilt",
+    out = "enc_bootloader_elf.h",
+)
+
+# TODO: Make it possible to build the prebuilt from source.
+picotool_binary_data_header(
+    name = "enc_bootloader_mbedtls_elf",
+    src = "//enc_bootloader:enc_bootloader_mbedtls_prebuilt",
+    out = "enc_bootloader_mbedtls_elf.h",
+)
+
+# TODO: Make it possible to build the prebuilt from source.
+picotool_binary_data_header(
+    name = "flash_id_bin",
+    src = "//picoboot_flash_id:picoboot_flash_id_prebuilt",
+    out = "flash_id_bin.h",
+)
+
+picotool_binary_data_header(
+    name = "rp2350_a2_rom_end",
+    src = "//model:rp2350_a2_rom_end_bin",
+    out = "rp2350_a2_rom_end.h",
+)
+
+picotool_binary_data_header(
+    name = "rp2350_a3_rom_end",
+    src = "//model:rp2350_a3_rom_end_bin",
+    out = "rp2350_a3_rom_end.h",
+)
+
+picotool_binary_data_header(
+    name = "rp2350_a4_rom_end",
+    src = "//model:rp2350_a4_rom_end_bin",
+    out = "rp2350_a4_rom_end.h",
+)
+
+cc_library(
+    name = "xip_ram_perms",
+    srcs = ["get_xip_ram_perms.cpp"],
+    hdrs = [
+        "get_xip_ram_perms.h",
+        "xip_ram_perms_elf.h",
+    ],
+    deps = [
+        "//bazel:data_locs",
+        "//lib/whereami",
+    ],
+)
+
+cc_library(
+    name = "enc_bootloader",
+    srcs = ["get_enc_bootloader.cpp"],
+    hdrs = [
+        "enc_bootloader_elf.h",
+        "enc_bootloader_mbedtls_elf.h",
+        "get_enc_bootloader.h",
+    ],
+    deps = [
+        "//bazel:data_locs",
+        "//lib/whereami",
+    ],
+)
+
+filegroup(
+    name = "data_locs_header",
+    srcs = ["data_locs.h"],
+)
+
+otp_header_parse(
+    name = "otp_header",
+    src = "@pico-sdk//src/rp2350/hardware_regs:otp_data_header",
+    out = "rp2350.json.h",
+    target_compatible_with = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+)
+
+cc_binary(
+    name = "picotool",
+    srcs = [
+        "cli.h",
+        "clipp/clipp.h",
+        "get_enc_bootloader.cpp",
+        "get_xip_ram_perms.cpp",
+        "main.cpp",
+        "otp.cpp",
+        "otp.h",
+    ] + select({
+        # MSVC can't handle long strings, so use this manually generated
+        # header instead.
+        "@rules_cc//cc/compiler:msvc-cl": [],
+        "//conditions:default": ["rp2350.json.h"],
+    }),
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": [
+            "/std:c++20",
+        ],
+        "//conditions:default": [
+            "-fexceptions",
+            "-Wno-delete-non-abstract-non-virtual-dtor",
+            "-Wno-reorder-ctor",
+            "-Wno-unused-variable",
+            "-Wno-unused-but-set-variable",
+        ],
+    }),
+    defines = [
+        'PICOTOOL_VERSION=\\"{}\\"'.format(PICOTOOL_SDK_VERSION_STRING),
+        'SYSTEM_VERSION=\\"host\\"',
+        'COMPILER_INFO=\\"local\\"',
+        "SUPPORT_A0=0",
+        "SUPPORT_A2=1",
+        "PICOTOOL_CODE_OTP=0",
+        # TODO: Make it possible to compile from source.
+        "USE_PRECOMPILED=1",
+    ],
+    # Windows does not behave nicely with the automagic force_dynamic_linkage_enabled.
+    dynamic_deps = select({
+        "@rules_libusb//:force_dynamic_linkage_enabled": ["@libusb//:libusb_dynamic"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":enc_bootloader",
+        ":xip_ram_perms",
+        "//bazel:data_locs",
+        "//bintool",
+        "//elf",
+        "//elf2uf2",
+        "//errors",
+        "//lib/nlohmann_json:json",
+        "//picoboot_connection",
+        "@libusb",
+        "@pico-sdk//src/common/boot_picobin_headers",
+        "@pico-sdk//src/common/boot_picoboot_headers",
+        "@pico-sdk//src/common/boot_uf2_headers",
+        "@pico-sdk//src/common/pico_base_headers",
+        "@pico-sdk//src/common/pico_binary_info",
+        "@pico-sdk//src/common/pico_usb_reset_interface_headers",
+        "@pico-sdk//src/rp2350/hardware_regs:otp_data",
+        "@pico-sdk//src/rp2_common/pico_bootrom:pico_bootrom_headers",
+    ] + select({
+        # MSVC can't handle long strings, so use this manually generated
+        # header instead.
+        "@rules_cc//cc/compiler:msvc-cl": ["//otp_header_parser:pre_generated_otp_header"],
+        "//conditions:default": [],
+    }),
+)

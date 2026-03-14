@@ -1,0 +1,3 @@
+
+set(PIOASM_EXTRA_SOURCE_FILES "" CACHE STRING "Initial cache" FORCE)
+set(PIOASM_VERSION_STRING "2.2.1-develop" CACHE STRING "Initial cache" FORCE)
