@@ -8,7 +8,11 @@
 - `Sketches/lib`：随仓库提供的 Arduino 库
 - `AudioBootloader`：通过 3.5mm 音频线更新固件的 bootloader 与工具链
 
-这个仓库建立在 Rich Heslip 的 `2HPico-Sketches` 和 `2HPico-DSP-Sketches` 思路之上，目标是把普通模块、DSP 模块、测试程序和音频更新流程放到同一个目录结构里，便于维护、编译和分发。
+这个仓库建立在 Rich Heslip 的 `2HPico-Sketches` 和 `2HPico-DSP-Sketches` 思路之上，
+原仓库：
+- https://github.com/rheslip/2HPico-Sketches
+- https://github.com/rheslip/2HPico-DSP-Sketches
+非常感谢 Rich 开创性的工作，而这个仓库旨在作为一个补充性的扩展，将标准模块、DSP 模块、测试 sketch 以及音频更新工作流统一到一个更易于维护、编译和分发的目录结构中。
 
 ## 这个仓库和上游的区别
 

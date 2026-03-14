@@ -8,7 +8,11 @@ An RP2350 firmware repository for 2HP Pico / PicoFX Eurorack modules, combining:
 - `Sketches/lib`: Arduino libraries bundled with this repository
 - `AudioBootloader`: a bootloader and toolchain for updating firmware over a 3.5 mm audio cable
 
-This repository builds on the ideas from Rich Heslip's `2HPico-Sketches` and `2HPico-DSP-Sketches`. The goal is to keep standard modules, DSP modules, test sketches, and the audio update workflow in one unified directory layout that is easier to maintain, compile, and distribute.
+This repository builds on the ideas from Rich Heslip's `2HPico-Sketches` and `2HPico-DSP-Sketches`. 
+see the original skeches at:
+- https://github.com/rheslip/2HPico-Sketches
+- https://github.com/rheslip/2HPico-DSP-Sketches
+Much appreciated Rich's pioneering work, and this repository is meant to be a complementary expansion that keeps standard modules, DSP modules, test sketches, and the audio update workflow in one unified directory layout that is easier to maintain, compile, and distribute.
 
 ## What Is Different From The Upstream Repositories
 
