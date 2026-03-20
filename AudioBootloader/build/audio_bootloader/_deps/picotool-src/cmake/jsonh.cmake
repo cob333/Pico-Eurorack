@@ -1,2 +1,0 @@
-file(READ ${GENERATED_JSON} FILE_CONTENT)
-configure_file(${CMAKE_CURRENT_LIST_DIR}/rp2350.json.template.h ${CMAKE_CURRENT_BINARY_DIR}/rp2350.json.h @ONLY)

@@ -1,4 +1,4 @@
-// Copyright 2026 Rich Heslip
+// Copyright 2025 Rich Heslip
 //
 // Author: Rich Heslip
 // Contributor: Wenhao Yang
@@ -25,346 +25,229 @@
 //
 // -----------------------------------------------------------------------------
 //
-// DaisySP drum models for 2HPico Eurorack module
-// Models: AnalogBassDrum, SyntheticBassDrum, HiHat, SyntheticSnare
-//
-// UI
-// Button: select model in order Analog BD (RED) -> Synth BD (ORANGE) -> HiHat (YELLOW) -> Synth Snare (GREEN)
-// Pot 1: Tune          (pitch)
-// Pot 2: Tone          (brightness)
-// Pot 3: Accent        (base accent level)
-// Pot 4: Decay         (tail length)
-//
-// Jacks
-// Top    : Trigger in (normal hit)
-// Middle : Trigger in (accent hit)
-// Bottom : Audio out
-//
-// RH / WY Mar 2026
+// Drum voice app for 2HPico Eurorack module
+// custom drum models for RP2350
+// V1.0 WY Mar 2026
 
-#include "2HPico.h"
+// top jack - trigger input
+// middle jack - tune modulation input
+// bottom jack - audio out
+
+// button - cycle drum model
+
+// 808kick - Red LED
+// hihats - Yellow LED
+// snare - Green LED
+
+// Pot 1 - Tune
+// Pot 2 - Tone
+// Pot 3 - Output level
+// Pot 4 - Decay
+
+// performance notes:
+// - .ino handles UI, trigger detection, LED and I2S
+// - DrumModels.h contains all drum synthesis code
+// - only the active model is processed on core 1
+// - 44.1kHz keeps the drum transients crisp while staying within RP2350 budget
+
+#include <2HPico.h>
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
-#include "pico/multicore.h"
 #include <math.h>
-extern "C" {
-  #include "hardware/clocks.h"
-}
 
-#define DEBUG           // comment out to remove debug code
-#define MONITOR_CPU1    // define to enable 2nd core monitoring on CPU_USE pin
+#include "pico/multicore.h"
 
-//#define SAMPLERATE 22050
+#include "DrumModels.h"
+
+//#define DEBUG
+#define MONITOR_CPU1
+
 #define SAMPLERATE 44100
+#define TUNE_CV_THRESHOLD 120
 
 Adafruit_NeoPixel LEDS(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);
-I2S DAC(OUTPUT);  // PT8211/PCM5102 etc.
+I2S DAC(OUTPUT);
 
-#include "daisysp.h"
-// pull in just the modules we need to keep binary size down
-#include "filters/svf.cpp"
-#include "synthesis/oscillator.cpp"
-#include "drums/analogbassdrum.cpp"
-#include "drums/synthbassdrum.cpp"
-#include "drums/hihat.cpp"
-#include "drums/synthsnaredrum.cpp"
+float samplerate = SAMPLERATE;
 
-using namespace daisysp;
-
-float samplerate = SAMPLERATE;  // for DaisySP Init
-
-// hardware mappings
-#define TRIGGER_IN TRIGGER   // top jack
-#define ACCENT_IN  AIN1      // middle jack used as a second trigger
-
-// UI state
-enum DrumModel { ANALOG_BD = 0, SYNTH_BD, HIHAT, SYNTH_SNARE, NUM_MODELS };
-volatile uint8_t currentModel = ANALOG_BD;
-
-struct ModelParams {
-  float tune;    // 0..1 normalized
-  float tone;    // 0..1 normalized
-  float accent;  // 0..1 normalized
-  float decay;   // 0..1 normalized
+DrumVoiceBank drums;
+DrumParameters modelParams[NUM_DRUM_MODELS] = {
+  kDefaultDrumParameters[MODEL_808KICK],
+  kDefaultDrumParameters[MODEL_HIHATS],
+  kDefaultDrumParameters[MODEL_SNARE],
 };
 
-// per‑model defaults (normalized)
-ModelParams params[NUM_MODELS] = {
-  {0.40f, 0.40f, 0.80f, 0.55f}, // Analog BD (raise accent a bit)
-  {0.38f, 0.55f, 0.50f, 0.60f}, // Synth BD
-  {0.70f, 0.55f, 0.50f, 0.40f}, // HiHat
-  {0.45f, 0.65f, 0.55f, 0.50f}  // Synth Snare
-};
+volatile uint8_t currentModel = MODEL_808KICK;
+volatile uint8_t triggerPending = 0;
+volatile uint32_t controlRevision = 1;
+volatile float tuneCvAmount = 0.0f;
 
-// Per-model output gain to level-match (1.0 = unity)
-float modelGain[NUM_MODELS] = {
-  1.8f,  // Analog BD louder to match others
-  1.0f,  // Synth BD
-  1.0f,  // HiHat
-  1.0f   // Synth Snare
-};
-
-// DaisySP voice objects
-AnalogBassDrum    analogBD;
-SyntheticBassDrum synthBD;
-HiHat<>           hihat;
-SyntheticSnareDrum synthSnare;
-
-// inter-core flags
-volatile bool trigPending   = false;
-volatile bool accentPending = false;
-
-// debounce & timing
+bool button = 0;
+bool trigger = 0;
 uint32_t buttontimer = 0;
-uint32_t trigtimer   = 0;
-uint32_t accenttimer = 0;
+uint32_t trigtimer = 0;
 uint32_t parameterupdate = 0;
 
-bool buttonState = false;
-bool trigState   = false;
-bool accentState = false;
-
-// helpers
-static inline float clamp01(float v) {
-  if (v < 0.0f) return 0.0f;
-  if (v > 1.0f) return 1.0f;
-  return v;
-}
-
-static inline float lerp(float a, float b, float t) {
-  return a + (b - a) * t;
-}
-
-static inline float potNorm(uint16_t reading) {
-  return (float)reading / (float)(AD_RANGE - 1);
-}
-
-static float tuneToHz(uint8_t model, float norm) {
+static uint32_t modelColor(uint8_t model) {
   switch (model) {
-    case ANALOG_BD:   return lerp(25.0f, 120.0f, norm);
-    case SYNTH_BD:    return lerp(25.0f, 140.0f, norm);
-    case HIHAT:       return lerp(1500.0f, 14000.0f, norm);
-    case SYNTH_SNARE: return lerp(80.0f, 1200.0f, norm);
-    default:          return 100.0f;
-  }
-}
-
-static float decayForModel(uint8_t model, float norm) {
-  // small floor to avoid going to absolute zero
-  switch (model) {
-    case HIHAT:       return lerp(0.05f, 1.0f, norm);
-    case SYNTH_SNARE: return lerp(0.05f, 1.2f, norm);
-    default:          return clamp01(norm);
+    case MODEL_808KICK: return RED;
+    case MODEL_HIHATS: return YELLOW;
+    default: return GREEN;
   }
 }
 
 static void setLedForModel(uint8_t model) {
-  switch (model) {
-    case ANALOG_BD:   LEDS.setPixelColor(0, RED);    break;
-    case SYNTH_BD:    LEDS.setPixelColor(0, ORANGE); break;
-    case HIHAT:       LEDS.setPixelColor(0, YELLOW); break;
-    case SYNTH_SNARE: LEDS.setPixelColor(0, GREEN);  break;
-    default:          LEDS.setPixelColor(0, GREY);   break;
-  }
+  LEDS.setPixelColor(0, modelColor(model));
   LEDS.show();
 }
 
-static void applyParamsToModel(uint8_t model) {
-  ModelParams p = params[model];
-  float tuneHz  = tuneToHz(model, clamp01(p.tune));
-  float tone    = clamp01(p.tone);
-  float accent  = clamp01(p.accent);
-  float decay   = decayForModel(model, clamp01(p.decay));
-
-  switch (model) {
-    case ANALOG_BD:
-      analogBD.SetFreq(tuneHz);
-      analogBD.SetTone(tone);
-      analogBD.SetAccent(accent);
-      analogBD.SetDecay(decay);
-      break;
-    case SYNTH_BD:
-      synthBD.SetFreq(tuneHz);
-      synthBD.SetTone(tone);
-      synthBD.SetAccent(accent);
-      synthBD.SetDecay(decay);
-      // leave dirtiness/FM at library defaults
-      break;
-    case HIHAT:
-      hihat.SetFreq(tuneHz);
-      hihat.SetTone(tone);
-      hihat.SetAccent(accent);
-      hihat.SetDecay(decay);
-      hihat.SetNoisiness(0.25f + 0.65f * (1.0f - tone)); // darker tone = more noise
-      break;
-    case SYNTH_SNARE:
-      synthSnare.SetFreq(tuneHz);
-      synthSnare.SetSnappy(tone);
-      synthSnare.SetAccent(accent);
-      synthSnare.SetDecay(decay);
-      synthSnare.SetFmAmount(0.05f + 0.9f * tone);
-      break;
-    default:
-      break;
-  }
+static float readTuneCvAmount() {
+  float cv = (float)(AD_RANGE - sampleCV2());
+  if (cv < TUNE_CV_THRESHOLD) return 0.0f;
+  float normalized = (cv - TUNE_CV_THRESHOLD) / (float)((AD_RANGE - 1) - TUNE_CV_THRESHOLD);
+  if (normalized < 0.0f) normalized = 0.0f;
+  if (normalized > 1.0f) normalized = 1.0f;
+  return normalized;
 }
 
-static void triggerCurrentModel(bool accentHit) {
-  uint8_t model = currentModel;
-  float baseAccent = clamp01(params[model].accent);
-  float hitAccent  = accentHit ? 1.0f : baseAccent;
+static void advanceModel() {
+  uint8_t nextModel = currentModel + 1;
+  if (nextModel >= NUM_DRUM_MODELS) nextModel = MODEL_808KICK;
+  currentModel = nextModel;
+  lockpots();
+  ++controlRevision;
+  setLedForModel(currentModel);
+}
 
-  // temporarily push accent up for accented hits
-  switch (model) {
-    case ANALOG_BD:   analogBD.SetAccent(hitAccent);   analogBD.Trig();   if (accentHit) analogBD.SetAccent(baseAccent);   break;
-    case SYNTH_BD:    synthBD.SetAccent(hitAccent);    synthBD.Trig();    if (accentHit) synthBD.SetAccent(baseAccent);    break;
-    case HIHAT:       hihat.SetAccent(hitAccent);      hihat.Trig();      if (accentHit) hihat.SetAccent(baseAccent);      break;
-    case SYNTH_SNARE: synthSnare.SetAccent(hitAccent); synthSnare.Trig(); if (accentHit) synthSnare.SetAccent(baseAccent); break;
-    default:          break;
+static void updateCurrentModelFromPots() {
+  samplepots();
+
+  uint8_t model = currentModel;
+  DrumParameters previous = modelParams[model];
+  DrumParameters updated = previous;
+
+  if (!potlock[0]) updated.tune = mapf(pot[0], 0, AD_RANGE - 1, 0.0f, 1.0f);
+  if (!potlock[1]) updated.tone = mapf(pot[1], 0, AD_RANGE - 1, 0.0f, 1.0f);
+  if (!potlock[2]) updated.level = mapf(pot[2], 0, AD_RANGE - 1, 0.0f, 1.0f);
+  if (!potlock[3]) updated.decay = mapf(pot[3], 0, AD_RANGE - 1, 0.0f, 1.0f);
+
+  float previousTuneCv = tuneCvAmount;
+  float updatedTuneCv = readTuneCvAmount();
+
+  if ((fabsf(updated.tune - previous.tune) > 0.001f)
+      || (fabsf(updated.tone - previous.tone) > 0.001f)
+      || (fabsf(updated.level - previous.level) > 0.001f)
+      || (fabsf(updated.decay - previous.decay) > 0.001f)
+      || (fabsf(updatedTuneCv - previousTuneCv) > 0.01f)) {
+    modelParams[model] = updated;
+    tuneCvAmount = updatedTuneCv;
+    ++controlRevision;
   }
 }
 
 void setup() {
-  Serial.begin(115200);
 #ifdef DEBUG
-  Serial.println("Drums setup");
+  Serial.begin(115200);
+  Serial.println("starting setup");
 #endif
 
-  // bump system clock before bringing up peripherals
-
-  pinMode(TRIGGER_IN, INPUT_PULLUP); // trigger inputs are inverted on this hardware
-  pinMode(ACCENT_IN, INPUT_PULLUP);
+  pinMode(TRIGGER, INPUT_PULLUP);
   pinMode(BUTTON1, INPUT_PULLUP);
-  pinMode(MUXCTL, OUTPUT);  // analog mux for the four pots
+  pinMode(MUXCTL, OUTPUT);
 
 #ifdef MONITOR_CPU1
-  pinMode(CPU_USE, OUTPUT); // hi = core1 busy
+  pinMode(CPU_USE, OUTPUT);
 #endif
-
-  analogBD.Init(samplerate);
-  synthBD.Init(samplerate);
-  hihat.Init(samplerate);
-  synthSnare.Init(samplerate);
-
-  analogReadResolution(AD_BITS); // max ADC resolution
 
   LEDS.begin();
   setLedForModel(currentModel);
 
-  applyParamsToModel(currentModel);
+  analogReadResolution(AD_BITS);
+  samplepots();
 
-  // set up Pico I2S for PT8211 stereo DAC
+  drums.Init(samplerate);
+  for (uint8_t i = 0; i < NUM_DRUM_MODELS; ++i) {
+    drums.SetParameters(i, modelParams[i]);
+  }
+  drums.SetModel(currentModel);
+
   DAC.setBCLK(BCLK);
   DAC.setDATA(I2S_DATA);
   DAC.setBitsPerSample(16);
-  DAC.setBuffers(1, 128, 0); // DMA buffer - 32 bit L/R words
-  DAC.setLSBJFormat();       // needed for PT8211 which has funny timing
+  DAC.setBuffers(1, 128, 0);
+  DAC.setLSBJFormat();
   DAC.begin(SAMPLERATE);
 
 #ifdef DEBUG
-  Serial.println("Drums ready");
+  Serial.println("finished setup");
 #endif
 }
 
 void loop() {
-  // model select button
   if (!digitalRead(BUTTON1)) {
-    if (((millis() - buttontimer) > DEBOUNCE) && !buttonState) {
-      buttonState = true;
-      currentModel = (currentModel + 1) % NUM_MODELS;
-      setLedForModel(currentModel);
-      lockpots();
-      applyParamsToModel(currentModel); // push stored defaults for new model
+    if (((millis() - buttontimer) > DEBOUNCE) && !button) {
+      button = 1;
+      advanceModel();
     }
   } else {
     buttontimer = millis();
-    buttonState = false;
+    button = 0;
   }
 
-  // read pots and update parameters periodically
   if ((millis() - parameterupdate) > PARAMETERUPDATE) {
     parameterupdate = millis();
-    samplepots();
-    ModelParams &p = params[currentModel];
-    if (!potlock[0]) p.tune   = potNorm(pot[0]);
-    if (!potlock[1]) p.tone   = potNorm(pot[1]);
-    if (!potlock[2]) p.accent = potNorm(pot[2]);
-    if (!potlock[3]) p.decay  = potNorm(pot[3]);
-    applyParamsToModel(currentModel);
+    updateCurrentModelFromPots();
   }
 
-  // normal trigger (top jack)
-  if (!digitalRead(TRIGGER_IN)) {
-    if (((millis() - trigtimer) > TRIG_DEBOUNCE) && !trigState) {
-      trigState = true;
-      trigPending = true;
+  if (!digitalRead(TRIGGER)) {
+    if (((millis() - trigtimer) > TRIG_DEBOUNCE) && !trigger) {
+      trigger = 1;
+      triggerPending = 1;
     }
   } else {
     trigtimer = millis();
-    trigState = false;
-  }
-
-  // accent trigger (middle jack)
-  if (!digitalRead(ACCENT_IN)) {
-    if (((millis() - accenttimer) > TRIG_DEBOUNCE) && !accentState) {
-      accentState = true;
-      accentPending = true;
-    }
-  } else {
-    accenttimer = millis();
-    accentState = false;
+    trigger = 0;
   }
 }
 
-// second core setup
 void setup1() {
-  delay(1000); // wait for core0 to bring up peripherals
+  delay(1000);
 }
 
-// process audio samples on core1
 void loop1() {
+  static uint32_t lastControlRevision = 0;
   static float sig = 0.0f;
   static int32_t outsample = 0;
 
-  bool fireAccent = false;
-  bool fireNormal = false;
-
-  // service trigger flags
-  if (accentPending) {
-    fireAccent = true;
-    accentPending = false;
-  } else if (trigPending) {
-    fireNormal = true;
-    trigPending = false;
-  }
-
-  if (fireAccent || fireNormal) {
-    triggerCurrentModel(fireAccent);
-  }
-
-  switch (currentModel) {
-    case ANALOG_BD:   sig = analogBD.Process();   break;
-    case SYNTH_BD:    sig = synthBD.Process();    break;
-    case HIHAT:       sig = hihat.Process();      break;
-    case SYNTH_SNARE: sig = synthSnare.Process(); break;
-    default:          sig = 0.0f;                 break;
-  }
-
-  // apply per-model gain and soft clip
-  sig *= modelGain[currentModel];
-  if (sig > 1.0f) sig = 1.0f;
-  if (sig < -1.0f) sig = -1.0f;
-
-  outsample = (int32_t)(sig * MULT_16) >> 16; // scale to 16 bit
-
 #ifdef MONITOR_CPU1
-  digitalWrite(CPU_USE, 0); // low = waiting for DMA slot
+  digitalWrite(CPU_USE, 1);
 #endif
 
-  DAC.write(int16_t(outsample)); // left
-  DAC.write(int16_t(outsample)); // right
+  uint8_t model = currentModel;
+  uint32_t revision = controlRevision;
+  if (revision != lastControlRevision) {
+    DrumParameters effective = modelParams[model];
+    effective.tune = DrumClamp01(effective.tune + tuneCvAmount);
+    drums.SetParameters(model, effective);
+    drums.SetModel(model);
+    lastControlRevision = revision;
+  }
+
+  uint8_t pendingTrigger = triggerPending;
+  if (pendingTrigger) {
+    triggerPending = 0;
+    drums.Trigger();
+  }
+
+  sig = drums.Process() * modelParams[model].level;
+  if (sig > 1.0f) sig = 1.0f;
+  if (sig < -1.0f) sig = -1.0f;
+  outsample = (int32_t)(sig * MULT_16) >> 16;
+
+  DAC.write(int16_t(outsample));
+  DAC.write(int16_t(outsample));
 
 #ifdef MONITOR_CPU1
-  digitalWrite(CPU_USE, 1); // hi = core1 busy
+  digitalWrite(CPU_USE, 0);
 #endif
 }

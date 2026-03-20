@@ -76,7 +76,7 @@
 #define MONITOR_CPU1  // define to enable 2nd core monitoring
 //#define DEBUG   // comment out to remove debug code
 
-#define SAMPLERATE 48000
+#define SAMPLERATE 44100
 
 Adafruit_NeoPixel LEDS(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);
 

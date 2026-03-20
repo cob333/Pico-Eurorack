@@ -1,5 +1,0 @@
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/pioasm-install/pioasm/pioasm
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/pioasm-install/pioasm/pioasmTargets.cmake
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/pioasm-install/pioasm/pioasmTargets-release.cmake
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/pioasm-install/pioasm/pioasmConfig.cmake
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/pioasm-install/pioasm/pioasmConfigVersion.cmake

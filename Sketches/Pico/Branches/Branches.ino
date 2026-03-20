@@ -41,7 +41,7 @@
 //   Pot4 unused
 //
 // Jacks:
-//   Top    : Trigger In
+//   Top : Trigger In
 //   AUX : Red Out
 //   OUT : Green Out
 

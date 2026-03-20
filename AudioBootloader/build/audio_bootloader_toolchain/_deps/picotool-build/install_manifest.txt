@@ -1,7 +1,0 @@
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/_deps/picotool/picotool
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/_deps/picotool/picotoolTargets.cmake
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/_deps/picotool/picotoolTargets-release.cmake
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/_deps/picotool/picotoolConfig.cmake
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/_deps/picotool/picotoolConfigVersion.cmake
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/_deps/picotool/enc_bootloader.elf
-/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/build/audio_bootloader_toolchain/_deps/picotool/enc_bootloader_mbedtls.elf

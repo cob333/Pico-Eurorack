@@ -1,0 +1,35 @@
+OK 16Step_Sequencer 150MHz Pico-Eurorack/Sketches/Pico/16Step_Sequencer/16Step_Sequencer_150MHz.uf2
+OK Braids 150MHz Pico-Eurorack/Sketches/Pico/Braids/Braids_150MHz.uf2
+OK Branches 150MHz Pico-Eurorack/Sketches/Pico/Branches/Branches_150MHz.uf2
+OK DejaVu 150MHz Pico-Eurorack/Sketches/Pico/DejaVu/DejaVu_150MHz.uf2
+OK Drums 150MHz Pico-Eurorack/Sketches/Pico/Drums/Drums_150MHz.uf2
+OK DualClock 150MHz Pico-Eurorack/Sketches/Pico/DualClock/DualClock_150MHz.uf2
+OK Grids_Sampler 150MHz Pico-Eurorack/Sketches/Pico/Grids_Sampler/Grids_Sampler_150MHz.uf2
+OK Modal 250MHz Pico-Eurorack/Sketches/Pico/Modal/Modal_250MHz.uf2
+OK Modulation 150MHz Pico-Eurorack/Sketches/Pico/Modulation/Modulation_150MHz.uf2
+OK Moogvoice 200MHz Pico-Eurorack/Sketches/Pico/Moogvoice/Moogvoice_200MHz.uf2
+OK Motion_Recorder 150MHz Pico-Eurorack/Sketches/Pico/Motion_Recorder/Motion_Recorder_150MHz.uf2
+OK Plaits 250MHz Pico-Eurorack/Sketches/Pico/Plaits/Plaits_250MHz.uf2
+FAIL PlaitsFM 250MHz
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Sketches/Pico/PlaitsFM/PlaitsFM.ino:74:10: fatal error: 6opfm.h: No such file or directory
+   74 | #include <6opfm.h>
+      |          ^~~~~~~~~
+compilation terminated.
+
+Used library       Version Path
+2HPicolib                  /Users/yangwenhaomac/Documents/Arduino/libraries/2HPicolib
+I2S                2.0     /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0/libraries/I2S
+AudioBufferManager 1.0.0   /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0/libraries/AudioBufferManager
+Adafruit NeoPixel  1.15.4  /Users/yangwenhaomac/Documents/Arduino/libraries/Adafruit_NeoPixel
+EEPROM             1.0     /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0/libraries/EEPROM
+STMLIB             1.0.0   /Users/yangwenhaomac/Documents/Arduino/libraries/STMLIB
+
+Used platform Version Path
+rp2040:rp2040 5.5.0   /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0
+Error during build: exit status 1
+
+OK Temp 150MHz Pico-Eurorack/Sketches/Pico/Temp/Temp_150MHz.uf2
+OK TripleOSC 150MHz Pico-Eurorack/Sketches/Pico/TripleOSC/TripleOSC_150MHz.uf2
+FAIL Turing_Machine 150MHz
+Can't open sketch: main file missing from sketch: /Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Sketches/Pico/Turing_Machine(WIP)/Turing_Machine(WIP).ino
+
