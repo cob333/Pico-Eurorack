@@ -34,9 +34,12 @@ Not very CPU intensive - Works OK at 150mhz and 44khz sampling
 
 Top Jack - Audio input 
 
-Middle jack - Right Audio out (solder the DAC jumper on the back of the PCB)
+Middle jack - In mono mode this becomes an external trigger clock input
+              (solder the CV jumper on the back of the PCB)
+              In ping pong mode it remains the right audio out
+              (solder the DAC jumper on the back of the PCB)
 
-Bottom Jack - Left Audio out
+Bottom Jack - Left / mono audio out
 
 First Parameter Page - RED
 
@@ -91,12 +94,98 @@ bool button=0;
 
 #define DEBOUNCE 10
 uint32_t buttontimer,parameterupdate,timelock;
-bool pingpongmode=0;
+volatile bool pingpongmode=0;
 
-float delayfeedback,delaymix, outputlevel;
+volatile float delayfeedback,delaymix, outputlevel;
 // filtered Values for smooth delay time changes.
 #define TIMEAVG 2000
-float smoothed_time, delay_time;
+float smoothed_time;
+volatile float delay_time;
+volatile float sync_ratio = 1.0f;
+
+constexpr float DEFAULT_DELAY_SAMPLES = SAMPLERATE / 4.0f;
+constexpr float MIN_DELAY_SAMPLES = 4.0f;
+constexpr float MAX_DELAY_SAMPLES = SAMPLERATE - 4.0f;
+constexpr uint32_t EXT_TIMEOUT_US = 1500000UL;
+constexpr uint32_t EXT_MIN_PERIOD_US = 5000UL;
+constexpr uint32_t EXT_MAX_PERIOD_US = 3000000UL;
+constexpr uint32_t DELAY_CLOCK_DEBOUNCE_MS = 3;
+constexpr float CLOCK_FILTER_ALPHA_SLOW = 0.12f;
+constexpr float CLOCK_FILTER_ALPHA_FAST = 0.45f;
+constexpr float CLOCK_UPDATE_HYSTERESIS_FRAC = 0.02f;
+constexpr float CLOCK_UPDATE_HYSTERESIS_SAMPLES = 24.0f;
+volatile uint32_t synced_clock_samples = (uint32_t)DEFAULT_DELAY_SAMPLES;
+volatile float synced_delay_target = DEFAULT_DELAY_SAMPLES;
+
+bool externalClock = 0;
+bool rawClockState = 1;
+bool debouncedClockState = 1;
+uint32_t clockStateChangedMs = 0;
+uint32_t lastExtEdgeUs = 0;
+uint32_t lastExtSeenUs = 0;
+float filteredClockSamples = DEFAULT_DELAY_SAMPLES;
+bool filteredClockValid = 0;
+
+float QuantizedClockRatio(uint16_t pot_value) {
+  static const float kClockRatios[] = {
+    0.16666667f, 0.25f, 0.33333334f, 0.5f, 0.66666667f,
+    1.0f, 1.33333334f, 2.0f, 2.66666667f
+  };
+
+  uint16_t clockwise_value = (AD_RANGE - 1) - pot_value;
+  int index = (clockwise_value * (int)(sizeof(kClockRatios) / sizeof(kClockRatios[0]))) / AD_RANGE;
+  int max_index = (int)(sizeof(kClockRatios) / sizeof(kClockRatios[0])) - 1;
+  if (index > max_index) index = max_index;
+  return kClockRatios[index];
+}
+
+float ClampDelaySamples(float samples) {
+  if (samples < MIN_DELAY_SAMPLES) return MIN_DELAY_SAMPLES;
+  if (samples > MAX_DELAY_SAMPLES) return MAX_DELAY_SAMPLES;
+  return samples;
+}
+
+void UpdateSyncedDelayTarget(bool force) {
+  float newTarget = ClampDelaySamples(filteredClockSamples * sync_ratio);
+  float diff = fabsf(newTarget - synced_delay_target);
+  float hysteresis = synced_delay_target * CLOCK_UPDATE_HYSTERESIS_FRAC;
+  if (hysteresis < CLOCK_UPDATE_HYSTERESIS_SAMPLES) hysteresis = CLOCK_UPDATE_HYSTERESIS_SAMPLES;
+
+  if (force || diff >= hysteresis) synced_delay_target = newTarget;
+}
+
+void enterFreeRunSyncClock() {
+  externalClock = 0;
+  lastExtEdgeUs = 0;
+}
+
+void handleExternalClockEdge(uint32_t nowUs) {
+  if (!externalClock) externalClock = 1;
+
+  if (lastExtEdgeUs != 0) {
+    uint32_t measuredUs = nowUs - lastExtEdgeUs;
+    if (measuredUs >= EXT_MIN_PERIOD_US && measuredUs <= EXT_MAX_PERIOD_US) {
+      float measuredSamples = ((float)measuredUs * samplerate) / 1000000.0f;
+      measuredSamples = ClampDelaySamples(measuredSamples);
+
+      if (!filteredClockValid) {
+        filteredClockSamples = measuredSamples;
+        filteredClockValid = 1;
+      }
+      else {
+        float deltaFrac = fabsf(measuredSamples - filteredClockSamples) / filteredClockSamples;
+        float alpha = (deltaFrac > 0.10f) ? CLOCK_FILTER_ALPHA_FAST : CLOCK_FILTER_ALPHA_SLOW;
+        filteredClockSamples += (measuredSamples - filteredClockSamples) * alpha;
+      }
+
+      synced_clock_samples = (uint32_t)filteredClockSamples;
+      UpdateSyncedDelayTarget(0);
+    }
+  }
+
+  lastExtEdgeUs = nowUs;
+  lastExtSeenUs = nowUs;
+}
 
 void setup() { 
   Serial.begin(115200);
@@ -114,6 +203,7 @@ void setup() {
 
   pinMode(BUTTON1,INPUT_PULLUP); // button in
   pinMode(MUXCTL,OUTPUT);  // analog switch mux
+  pinMode(CV2IN, INPUT_PULLUP); // middle jack can be used as external sync clock in mono mode
 
   LEDS.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
   LEDS.setPixelColor(0, RED); 
@@ -134,11 +224,13 @@ void setup() {
 
   delayL.Init();
   delayR.Init();
-  delayL.SetDelay(samplerate/4);
-  delayR.SetDelay(samplerate/4);
+  delayL.SetDelay(DEFAULT_DELAY_SAMPLES);
+  delayR.SetDelay(DEFAULT_DELAY_SAMPLES);
   delayfeedback=0.5;
   delaymix=0.7;
   outputlevel=0.5;
+  delay_time=DEFAULT_DELAY_SAMPLES;
+  synced_delay_target=DEFAULT_DELAY_SAMPLES;
 
 #ifdef DEBUG  
   Serial.println("finished setup");  
@@ -147,10 +239,12 @@ void setup() {
 
 
 void loop() {
+  uint32_t nowUs = micros();
+  uint32_t nowMs = millis();
 
 // only one page in this app but the code is here in case somebody wants to add pages
   if (!digitalRead(BUTTON1)) {
-    if (((millis()-buttontimer) > DEBOUNCE) && !button) {  // if button pressed advance to next parameter set
+    if (((nowMs-buttontimer) > DEBOUNCE) && !button) {  // if button pressed advance to next parameter set
       button=1;  
       ++UIstate;
       if (UIstate >= NUMUISTATES) UIstate=DELAY; // only one parameter set
@@ -162,21 +256,47 @@ void loop() {
     }
   }
   else {
-    buttontimer=millis();
+    buttontimer=nowMs;
     button=0;
+  }
+
+  if (!pingpongmode) {
+    bool rawClockLow = !digitalRead(CV2IN);
+    if (rawClockLow != rawClockState) {
+      rawClockState = rawClockLow;
+      clockStateChangedMs = nowMs;
+    }
+
+    if (((nowMs - clockStateChangedMs) >= DELAY_CLOCK_DEBOUNCE_MS) && (debouncedClockState != rawClockState)) {
+      debouncedClockState = rawClockState;
+      if (debouncedClockState) handleExternalClockEdge(nowUs);
+    }
+
+    if (externalClock && (nowUs - lastExtSeenUs) > EXT_TIMEOUT_US) enterFreeRunSyncClock();
+  }
+  else {
+    rawClockState = 1;
+    debouncedClockState = 1;
+    clockStateChangedMs = nowMs;
   }
 
   samplepots();
   smoothed_time+=mapf(pot[0],0,AD_RANGE-1,0,SAMPLERATE); // calculate moving average of time setting - any jumping around is very noticable in the audio
   smoothed_time-=smoothed_time/TIMEAVG; 
 
-  if ((millis() -parameterupdate) > PARAMETERUPDATE) {  // don't update the parameters too often -sometimes it messes up the daisySP models
-    parameterupdate=millis();
+  if ((nowMs -parameterupdate) > PARAMETERUPDATE) {  // don't update the parameters too often -sometimes it messes up the daisySP models
+    parameterupdate=nowMs;
 
 // assign parameters from panel pots
     switch (UIstate) {
         case DELAY:
-          if (!potlock[0]) delay_time=smoothed_time/TIMEAVG;
+          if (!potlock[0]) {
+            if (pingpongmode) delay_time=ClampDelaySamples(smoothed_time/TIMEAVG);
+            else {
+              sync_ratio=QuantizedClockRatio(pot[0]);
+              UpdateSyncedDelayTarget(1);
+            }
+          }
           if (!potlock[1]) delayfeedback=(mapf(pot[1],0,AD_RANGE-1,0,1.0)); // 
           if (!potlock[2]) delaymix=(mapf(pot[2],0,AD_RANGE-1,0,1.0)); // 
           if (!potlock[3]) outputlevel=(mapf(pot[3],0,AD_RANGE-1,0,1.0)); // 
@@ -196,8 +316,8 @@ delay (1000); // wait for main core to start up peripherals
 
 // process audio samples
 void loop1(){
-  float sigL,sigR,outL,outR,delayedL,delayedR;
-  static float current_time;
+  float sigL,sigR,delayedL,delayedR;
+  static float current_time = DEFAULT_DELAY_SAMPLES;
   int32_t left,right;
 
 
@@ -212,8 +332,20 @@ void loop1(){
 
 // ramp delay time up or down by one sample to match the time set by user 
 // this minimizes the glitches caused by large changes in delay time
-  if (current_time < delay_time) current_time+=1; 
-  else current_time-=1;
+  float target_time = delay_time;
+  if (!pingpongmode) {
+    target_time = synced_delay_target;
+  }
+
+  float slew_step = pingpongmode ? 1.0f : 64.0f;
+  if (current_time < target_time) {
+    current_time += slew_step;
+    if (current_time > target_time) current_time = target_time;
+  }
+  else if (current_time > target_time) {
+    current_time -= slew_step;
+    if (current_time < target_time) current_time = target_time;
+  }
 
   delayL.SetDelay(current_time);
   delayR.SetDelay(current_time);
@@ -222,21 +354,21 @@ void loop1(){
   sigR=left*DIV_16; 
 
   delayedL=delayL.Read();
-  delayedR=delayR.Read();
 
   if (pingpongmode) {  // ping pong mode - bounce the signal from left to right and back
+    delayedR=delayR.Read();
     delayL.Write(sigL + (delayedR*delayfeedback));
     delayR.Write((delayedL*delayfeedback)); 
+
+    sigL=(sigL+ delayedL*delaymix)*outputlevel; // add delay to dry signal 
+    sigR=(sigR+ delayedR*delaymix)*outputlevel;
   }
   else {
+    delayR.Write(0.0f); // keep the unused right delay line flushed while mono sync mode is active
     delayL.Write(sigL + (delayedL*delayfeedback));
-    delayR.Write(sigR + (delayedR*delayfeedback));
+    sigL=(sigL+ delayedL*delaymix)*outputlevel; // mono delay output is mirrored to both channels
+    sigR=sigL;
   }
-
-
-
-  sigL=(sigL+ delayedL*delaymix)*outputlevel; // add delay to dry signal 
-  sigR=(sigR+ delayedR*delaymix)*outputlevel;
 
   left=(int32_t)(sigL*MULT_16); // convert output back to int32
   right=(int32_t)(sigR*MULT_16); // convert output back to int32
