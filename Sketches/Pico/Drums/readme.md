@@ -1,37 +1,33 @@
-# 2HPico Bass Drum
+# 2HPico DRUMS
 
-Classic bass drum synthesis module inspired by the legendary TR-808 and TR-909 drum machines. Generate punchy bass drums with control over tone, decay, frequency, and accent.
+Contributor: SYNSO
 
-**Dependencies:**
+Multi-model drum sketch for the 2HPico Eurorack module.
 
-DaisySP library
+- RED: 808 Bass Drum
+- ORANGE: 909 Bass Drum
+- YELLOW: 808 Snare
+- GREEN: 909 Snare
+- TIFFANY: Hi-hat
 
-Adafruit Neopixel library
+## Jack Assignments
 
-2HPicolib support library in this repository
+- Top Jack: Trigger input
+- Middle Jack: Decay CV input
+- Bottom Jack: Audio output
 
-**Usage:**
+## Controls
 
-Top Jack - trigger input
+- Top Pot: Output level
+- Second Pot: Tone
+- Third Pot: Decay
+- Fourth Pot: Frequency
 
-Middle Jack - Accent CV input
+## Button Functions
 
-Bottom Jack - audio out
+- Short press: Cycle drum model
+- Hold for 3 seconds or longer: Save current model and panel settings to flash
 
-Button - switch drum model
+Save success indication:
 
-**Controls:**
-
-Top pot - Accent amount
-
-Second pot - Tone
-
-Third pot - Decay time
-
-Fourth pot - Frequency
-
-**Drum Models:**
-
-RED LED - 808 model
-
-ORANGE LED - 909 model
+- LED flashes GREEN 3 times
