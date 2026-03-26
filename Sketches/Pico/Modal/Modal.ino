@@ -57,8 +57,8 @@
 #define MONITOR_CPU1  // define to enable 2nd core monitoring
 
 //#define SAMPLERATE 11025 
-//#define SAMPLERATE 22050 // about the best a Pico 2 can do at 250 Mhz
-#define SAMPLERATE 32000
+#define SAMPLERATE 22050 // about the best a Pico 2 can do at 250 Mhz
+//#define SAMPLERATE 32000
 //#define SAMPLERATE 44100
 
 Adafruit_NeoPixel LEDS(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);

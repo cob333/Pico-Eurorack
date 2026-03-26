@@ -1,89 +1,54 @@
 #pragma once
 
 #include <math.h>
-#include <stdint.h>
+#include "daisysp.h"
 
-enum DrumModelId : uint8_t {
-  MODEL_808KICK = 0,
-  MODEL_HIHATS,
-  MODEL_SNARE,
-  NUM_DRUM_MODELS
-};
+namespace drums_internal {
 
-struct DrumParameters {
-  float tune;
-  float tone;
-  float level;
-  float decay;
-};
-
-static const DrumParameters kDefaultDrumParameters[NUM_DRUM_MODELS] = {
-  {0.26f, 0.34f, 0.90f, 0.62f},
-  {0.45f, 0.64f, 0.82f, 0.22f},
-  {0.42f, 0.58f, 0.86f, 0.40f},
-};
-
-static const float kDrumOutputGain[NUM_DRUM_MODELS] = {
-  1.05f,
-  0.52f,
-  0.88f,
-};
-
-static inline float DrumClamp01(float value) {
+static inline float Clamp01(float value) {
   if (value < 0.0f) return 0.0f;
   if (value > 1.0f) return 1.0f;
   return value;
 }
 
-static inline float DrumLerp(float minimum, float maximum, float amount) {
+static inline float Clamp(float value, float minimum, float maximum) {
+  if (value < minimum) return minimum;
+  if (value > maximum) return maximum;
+  return value;
+}
+
+static inline float Lerp(float minimum, float maximum, float amount) {
   return minimum + (maximum - minimum) * amount;
 }
 
-static inline float DrumWrap01(float phase) {
+static inline float Wrap01(float phase) {
   while (phase >= 1.0f) phase -= 1.0f;
   while (phase < 0.0f) phase += 1.0f;
   return phase;
 }
 
-static inline float DrumSoftClip(float input) {
+static inline float SoftClip(float input) {
   return input / (1.0f + 0.7f * fabsf(input));
 }
 
-static inline float DrumDecayCoefficient(float sampleRate, float seconds) {
-  if (seconds <= 0.0001f) return 0.0f;
-  return expf(-1.0f / (sampleRate * seconds));
+static inline float DecayCoefficient(float sample_rate, float seconds) {
+  if (seconds <= 0.0001f || sample_rate <= 0.0f) return 0.0f;
+  return expf(-1.0f / (sample_rate * seconds));
 }
-
-class DrumNoise {
- public:
-  DrumNoise() : state_(0x12345678u) {}
-
-  inline float Process() {
-    state_ ^= state_ << 13;
-    state_ ^= state_ >> 17;
-    state_ ^= state_ << 5;
-    return ((state_ & 0x00ffffffu) * (1.0f / 8388607.5f)) - 1.0f;
-  }
-
- private:
-  uint32_t state_;
-};
 
 class OnePoleLowPass {
  public:
-  OnePoleLowPass() : sampleRate_(32000.0f), coefficient_(0.0f), state_(0.0f) {}
+  OnePoleLowPass() : sample_rate_(32000.0f), coefficient_(0.0f), state_(0.0f) {}
 
-  void Init(float sampleRate) {
-    sampleRate_ = sampleRate;
+  void Init(float sample_rate) {
+    sample_rate_ = sample_rate;
     state_ = 0.0f;
     SetCutoff(1000.0f);
   }
 
-  void SetCutoff(float cutoffHz) {
-    if (cutoffHz < 5.0f) cutoffHz = 5.0f;
-    float maxCutoff = sampleRate_ * 0.45f;
-    if (cutoffHz > maxCutoff) cutoffHz = maxCutoff;
-    coefficient_ = 1.0f - expf(-2.0f * 3.14159265359f * cutoffHz / sampleRate_);
+  void SetCutoff(float cutoff_hz) {
+    cutoff_hz = Clamp(cutoff_hz, 5.0f, sample_rate_ * 0.45f);
+    coefficient_ = 1.0f - expf(-2.0f * 3.14159265359f * cutoff_hz / sample_rate_);
   }
 
   inline float Process(float input) {
@@ -91,368 +56,389 @@ class OnePoleLowPass {
     return state_;
   }
 
-  void Reset(float value = 0.0f) { state_ = value; }
-
  private:
-  float sampleRate_;
+  float sample_rate_;
   float coefficient_;
   float state_;
 };
 
-class OnePoleHighPass {
+class AnalogSnareDrumLocal {
  public:
-  void Init(float sampleRate) {
-    lowpass_.Init(sampleRate);
-    lowpass_.SetCutoff(1000.0f);
-  }
+  static const int kNumModes = 5;
 
-  void SetCutoff(float cutoffHz) { lowpass_.SetCutoff(cutoffHz); }
+  void Init(float sample_rate) {
+    sample_rate_ = sample_rate;
+    trig_ = false;
 
-  inline float Process(float input) {
-    return input - lowpass_.Process(input);
-  }
+    pulse_remaining_samples_ = 0;
+    pulse_ = 0.0f;
+    pulse_height_ = 0.0f;
+    pulse_lp_ = 0.0f;
+    noise_envelope_ = 0.0f;
+    sustain_gain_ = 0.0f;
 
-  void Reset(float value = 0.0f) { lowpass_.Reset(value); }
+    SetSustain(false);
+    SetFreq(200.0f);
+    SetDecay(0.3f);
+    SetSnappy(0.7f);
+    SetTone(0.5f);
 
- private:
-  OnePoleLowPass lowpass_;
-};
-
-class Kick808Voice {
- public:
-  void Init(float sampleRate) {
-    sampleRate_ = sampleRate;
-    clickShape_.Init(sampleRate_);
-    clickShape_.SetCutoff(800.0f);
-    bodyShaper_.Init(sampleRate_);
-    bodyShaper_.SetCutoff(2500.0f);
-    parameters_ = kDefaultDrumParameters[MODEL_808KICK];
-    phase_ = 0.0f;
-    ampEnv_ = 0.0f;
-    pitchEnv_ = 0.0f;
-    transient_ = 0.0f;
-    UpdateCoefficients();
-  }
-
-  void SetParameters(const DrumParameters& parameters) {
-    parameters_ = Sanitize(parameters);
-    UpdateCoefficients();
-  }
-
-  void Trigger() {
-    phase_ = 0.0f;
-    ampEnv_ = 1.25f;
-    pitchEnv_ = 1.18f;
-    transient_ = 1.85f;
-  }
-
-  inline float Process() {
-    ampEnv_ *= ampDecay_;
-    pitchEnv_ *= pitchDecay_;
-    transient_ *= transientDecay_;
-
-    float baseFreq = DrumLerp(28.0f, 78.0f, parameters_.tune);
-    float freq = baseFreq * (1.0f + pitchEnv_ * DrumLerp(1.45f, 0.50f, parameters_.tone));
-    phase_ = DrumWrap01(phase_ + freq / sampleRate_);
-
-    float fundamental = sinf(phase_ * 6.28318530718f);
-    float overtone = sinf(phase_ * 12.56637061436f) * (0.06f + 0.14f * parameters_.tone);
-    float body = bodyShaper_.Process(fundamental + overtone) * ampEnv_;
-    float click = clickShape_.Process(transient_) * transient_
-      * (0.40f + 0.40f * parameters_.tone);
-
-    return DrumSoftClip((body * 1.18f) + click);
-  }
-
- private:
-  static DrumParameters Sanitize(const DrumParameters& input) {
-    DrumParameters output = input;
-    output.tune = DrumClamp01(output.tune);
-    output.tone = DrumClamp01(output.tone);
-    output.level = DrumClamp01(output.level);
-    output.decay = DrumClamp01(output.decay);
-    return output;
-  }
-
-  void UpdateCoefficients() {
-    ampDecay_ = DrumDecayCoefficient(sampleRate_, DrumLerp(0.060f, 1.80f, parameters_.decay));
-    pitchDecay_ = DrumDecayCoefficient(sampleRate_, DrumLerp(0.007f, 0.040f, parameters_.decay));
-    transientDecay_ = DrumDecayCoefficient(sampleRate_, DrumLerp(0.0009f, 0.0032f, parameters_.tone));
-    clickShape_.SetCutoff(DrumLerp(1800.0f, 7600.0f, parameters_.tone));
-    bodyShaper_.SetCutoff(DrumLerp(1200.0f, 4200.0f, parameters_.tone));
-  }
-
-  float sampleRate_;
-  DrumParameters parameters_;
-  OnePoleLowPass clickShape_;
-  OnePoleLowPass bodyShaper_;
-  float phase_;
-  float ampEnv_;
-  float pitchEnv_;
-  float transient_;
-  float ampDecay_;
-  float pitchDecay_;
-  float transientDecay_;
-};
-
-class HiHatVoice {
- public:
-  void Init(float sampleRate) {
-    sampleRate_ = sampleRate;
-    band1Lp_.Init(sampleRate_);
-    band1Hp_.Init(sampleRate_);
-    band2Lp_.Init(sampleRate_);
-    band2Hp_.Init(sampleRate_);
-    noiseHp_.Init(sampleRate_);
-    for (uint8_t i = 0; i < 6; ++i) {
+    for (int i = 0; i < kNumModes; ++i) {
+      resonator_[i].Init(sample_rate_);
       phase_[i] = 0.0f;
     }
-    env_ = 0.0f;
-    transient_ = 0.0f;
-    parameters_ = kDefaultDrumParameters[MODEL_HIHATS];
-    UpdateCoefficients();
+    noise_filter_.Init(sample_rate_);
   }
 
-  void SetParameters(const DrumParameters& parameters) {
-    parameters_ = Sanitize(parameters);
-    UpdateCoefficients();
+  void Trig() { trig_ = true; }
+
+  void SetSustain(bool sustain) { sustain_ = sustain; }
+
+  void SetFreq(float f0) {
+    f0_ = daisysp::fclamp(f0 / sample_rate_, 0.0f, 0.4f);
   }
 
-  void Trigger() {
-    env_ = 1.05f;
-    transient_ = 1.65f;
+  void SetTone(float tone) {
+    tone_ = daisysp::fclamp(tone, 0.0f, 1.0f) * 2.0f;
   }
 
-  inline float Process() {
-    static const float kBaseFrequencies[6] = {
-      205.3f, 304.4f, 369.6f, 522.7f, 800.0f, 540.0f
+  void SetDecay(float decay) { decay_ = decay; }
+
+  void SetSnappy(float snappy) { snappy_ = daisysp::fclamp(snappy, 0.0f, 1.0f); }
+
+  float Process(bool trigger = false) {
+    const float decay_xt = decay_ * (1.0f + decay_ * (decay_ - 1.0f));
+    const int kTriggerPulseDuration = static_cast<int>(1.0e-3f * sample_rate_);
+    const float kPulseDecayTime = 0.1e-3f * sample_rate_;
+    const float q = 2000.0f * powf(2.0f, daisysp::kOneTwelfth * decay_xt * 84.0f);
+    const float noise_envelope_decay =
+      1.0f - 0.0017f * powf(2.0f, daisysp::kOneTwelfth * (-decay_ * (50.0f + snappy_ * 10.0f)));
+    const float exciter_leak = snappy_ * (2.0f - snappy_) * 0.1f;
+
+    float snappy = snappy_ * 1.1f - 0.05f;
+    snappy = daisysp::fclamp(snappy, 0.0f, 1.0f);
+
+    float tone = tone_;
+
+    if (trigger || trig_) {
+      trig_ = false;
+      pulse_remaining_samples_ = kTriggerPulseDuration;
+      pulse_height_ = 7.2f;
+      noise_envelope_ = 2.0f;
+    }
+
+    static const float kModeFrequencies[kNumModes] = {
+      1.00f, 2.00f, 3.18f, 4.16f, 5.62f
     };
 
-    float tuneScale = DrumLerp(0.72f, 1.55f, parameters_.tune);
-    float cluster = 0.0f;
-    for (uint8_t i = 0; i < 6; ++i) {
-      phase_[i] = DrumWrap01(phase_[i] + (kBaseFrequencies[i] * tuneScale) / sampleRate_);
-      cluster += (phase_[i] < 0.5f) ? 1.0f : -1.0f;
+    float f[kNumModes];
+    float gain[kNumModes];
+
+    for (int i = 0; i < kNumModes; ++i) {
+      f[i] = daisysp::fmin(f0_ * kModeFrequencies[i], 0.499f);
+      resonator_[i].SetFreq(f[i] * sample_rate_);
+      resonator_[i].SetRes((f[i] * (i == 0 ? q : q * 0.25f)) * 0.2f);
     }
-    cluster *= (1.0f / 6.0f);
 
-    env_ *= envDecay_;
-    transient_ *= transientDecay_;
+    if (tone < 0.666667f) {
+      tone *= 1.5f;
+      gain[0] = 1.5f + (1.0f - tone) * (1.0f - tone) * 4.5f;
+      gain[1] = 2.0f * tone + 0.15f;
+      for (int i = 2; i < kNumModes; ++i) {
+        gain[i] = 0.0f;
+      }
+    } else {
+      tone = (tone - 0.666667f) * 3.0f;
+      gain[0] = 1.5f - tone * 0.5f;
+      gain[1] = 2.15f - tone * 0.7f;
+      for (int i = 2; i < kNumModes; ++i) {
+        gain[i] = tone;
+        tone *= tone;
+      }
+    }
 
-    float hiss = noise_.Process() * 0.62f;
-    float source = (cluster * 0.82f) + hiss;
-    float band1 = band1Hp_.Process(band1Lp_.Process(source));
-    float band2 = band2Hp_.Process(band2Lp_.Process(source));
-    float noiseBand = noiseHp_.Process((hiss * 1.18f) + (transient_ * 0.92f));
+    float f_noise = f0_ * 16.0f;
+    f_noise = daisysp::fclamp(f_noise, 0.0f, 0.499f);
+    noise_filter_.SetFreq(f_noise * sample_rate_);
+    noise_filter_.SetRes(f_noise * 1.5f);
 
-    float tone = parameters_.tone;
-    float output = env_ * (
-      band1 * (0.62f - 0.20f * tone) +
-      band2 * (0.14f + 0.70f * tone) +
-      noiseBand * (0.92f + 1.02f * tone)
-    );
+    float pulse = 0.0f;
+    if (pulse_remaining_samples_) {
+      --pulse_remaining_samples_;
+      pulse = pulse_remaining_samples_ ? pulse_height_ : pulse_height_ - 1.0f;
+      pulse_ = pulse;
+    } else {
+      pulse_ *= 1.0f - 1.0f / kPulseDecayTime;
+      pulse = pulse_;
+    }
 
-    return DrumSoftClip(output * 1.46f);
+    const float sustain_gain_value = sustain_gain_ = 0.6f * decay_;
+    noise_envelope_ *= noise_envelope_decay;
+    const float shell_envelope =
+      sustain_ ? sustain_gain_value : daisysp::fclamp(noise_envelope_ * 0.5f, 0.0f, 1.0f);
+
+    pulse_lp_ = daisysp::fclamp(pulse_lp_, pulse, 0.75f);
+
+    float shell = 0.0f;
+    for (int i = 0; i < kNumModes; ++i) {
+      const float excitation =
+        i == 0 ? (pulse - pulse_lp_) + 0.006f * pulse : 0.026f * pulse;
+
+      phase_[i] += f[i];
+      if (phase_[i] >= 1.0f) phase_[i] -= 1.0f;
+
+      resonator_[i].Process(excitation);
+
+      shell += gain[i]
+        * (sustain_
+             ? sinf(phase_[i] * TWOPI_F) * sustain_gain_value * 0.25f
+             : (resonator_[i].Band() + excitation * exciter_leak) * shell_envelope);
+    }
+    shell = SoftClip(shell);
+
+    float noise = 2.0f * rand() * daisysp::kRandFrac - 1.0f;
+    if (noise < 0.0f) noise = 0.0f;
+    noise *= (sustain_ ? sustain_gain_value : noise_envelope_) * snappy * 2.0f;
+
+    noise_filter_.Process(noise);
+    noise = noise_filter_.Band();
+
+    return noise + shell * (1.0f - snappy);
   }
 
  private:
-  static DrumParameters Sanitize(const DrumParameters& input) {
-    DrumParameters output = input;
-    output.tune = DrumClamp01(output.tune);
-    output.tone = DrumClamp01(output.tone);
-    output.level = DrumClamp01(output.level);
-    output.decay = DrumClamp01(output.decay);
-    return output;
+  inline float SoftLimit(float x) {
+    return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
   }
 
-  void UpdateCoefficients() {
-    envDecay_ = DrumDecayCoefficient(sampleRate_, DrumLerp(0.006f, 0.55f, parameters_.decay));
-    transientDecay_ = DrumDecayCoefficient(sampleRate_, 0.0022f);
-    band1Hp_.SetCutoff(2400.0f);
-    band1Lp_.SetCutoff(DrumLerp(4300.0f, 7600.0f, parameters_.tone));
-    band2Hp_.SetCutoff(DrumLerp(4200.0f, 7200.0f, parameters_.tone));
-    band2Lp_.SetCutoff(DrumLerp(9200.0f, 14000.0f, parameters_.tone));
-    noiseHp_.SetCutoff(DrumLerp(5000.0f, 9000.0f, parameters_.tone));
+  inline float SoftClip(float x) {
+    if (x < -3.0f) return -1.0f;
+    if (x > 3.0f) return 1.0f;
+    return SoftLimit(x);
   }
 
-  float sampleRate_;
-  DrumParameters parameters_;
-  DrumNoise noise_;
-  OnePoleLowPass band1Lp_;
-  OnePoleHighPass band1Hp_;
-  OnePoleLowPass band2Lp_;
-  OnePoleHighPass band2Hp_;
-  OnePoleHighPass noiseHp_;
-  float phase_[6];
-  float env_;
-  float transient_;
-  float envDecay_;
-  float transientDecay_;
+  float sample_rate_;
+  float f0_;
+  float tone_;
+  float snappy_;
+  float decay_;
+  bool sustain_;
+  bool trig_;
+
+  int pulse_remaining_samples_;
+  float pulse_;
+  float pulse_height_;
+  float pulse_lp_;
+  float noise_envelope_;
+  float sustain_gain_;
+
+  daisysp::Svf resonator_[kNumModes];
+  daisysp::Svf noise_filter_;
+  float phase_[kNumModes];
 };
 
-class SnareVoice {
+}  // namespace drums_internal
+
+
+class BassDrum808 {
  public:
-  void Init(float sampleRate) {
-    sampleRate_ = sampleRate;
-    noiseLp_.Init(sampleRate_);
-    noiseHp_.Init(sampleRate_);
-    clickHp_.Init(sampleRate_);
-    clickLp_.Init(sampleRate_);
-    parameters_ = kDefaultDrumParameters[MODEL_SNARE];
-    phase1_ = 0.0f;
-    phase2_ = 0.0f;
-    bodyEnv_ = 0.0f;
-    noiseEnv_ = 0.0f;
+  void Init(float sample_rate) {
+    sample_rate_ = sample_rate;
+    click_shape_.Init(sample_rate_);
+    body_shaper_.Init(sample_rate_);
+
+    tone_ = 0.34f;
+    decay_seconds_ = 0.62f;
+    freq_hz_ = 42.0f;
+    sustain_ = 0.0f;
+    attack_fm_amount_ = 0.4f;
+    self_fm_amount_ = 0.5f;
+
+    phase_ = 0.0f;
+    amp_env_ = 0.0f;
+    pitch_env_ = 0.0f;
     transient_ = 0.0f;
+
     UpdateCoefficients();
   }
 
-  void SetParameters(const DrumParameters& parameters) {
-    parameters_ = Sanitize(parameters);
+  void SetTone(float tone) {
+    tone_ = drums_internal::Clamp01(tone * 4.0f);
     UpdateCoefficients();
   }
 
-  void Trigger() {
-    phase1_ = 0.0f;
-    phase2_ = 0.0f;
-    bodyEnv_ = 1.00f;
-    noiseEnv_ = 1.25f;
-    transient_ = 1.60f;
+  void SetDecay(float decay) {
+    decay_seconds_ = drums_internal::Clamp(decay, 0.02f, 2.0f);
+    UpdateCoefficients();
   }
 
-  inline float Process() {
-    bodyEnv_ *= bodyDecay_;
-    noiseEnv_ *= noiseDecay_;
-    transient_ *= transientDecay_;
+  void SetFreq(float freq) { freq_hz_ = drums_internal::Clamp(freq, 10.0f, 240.0f); }
 
-    float baseFreq = DrumLerp(170.0f, 330.0f, parameters_.tune);
-    float bodyDrop = 1.0f + (bodyEnv_ * 0.06f);
-    phase1_ = DrumWrap01(phase1_ + (baseFreq * bodyDrop) / sampleRate_);
-    phase2_ = DrumWrap01(phase2_ + (baseFreq * 1.82f * bodyDrop) / sampleRate_);
+  void SetSustain(float sustain) {
+    sustain_ = drums_internal::Clamp01(sustain);
+    UpdateCoefficients();
+  }
 
-    float tone = parameters_.tone;
-    float body = (
-      sinf(phase1_ * 6.28318530718f) * (0.78f - 0.20f * tone) +
-      sinf(phase2_ * 6.28318530718f) * (0.20f + 0.25f * tone)
-    ) * bodyEnv_;
+  void SetAttackFmAmount(float attack_fm_amount) {
+    attack_fm_amount_ = drums_internal::Clamp01(attack_fm_amount * 4.0f);
+  }
 
-    float noise = noiseHp_.Process(noiseLp_.Process(noiseGen_.Process()));
-    float snappy = noise * noiseEnv_ * (0.82f + 1.18f * tone);
-    float click = clickHp_.Process(clickLp_.Process(transient_)) * transient_
-      * (0.22f + 0.38f * tone);
+  void SetSelfFmAmount(float self_fm_amount) {
+    self_fm_amount_ = drums_internal::Clamp01(self_fm_amount);
+    UpdateCoefficients();
+  }
 
-    return DrumSoftClip((body * 1.08f) + snappy + click);
+  void Trig() {
+    phase_ = 0.0f;
+
+    amp_env_ = 1.14f + sustain_ * 0.20f;
+    pitch_env_ = (0.55f + attack_fm_amount_ * 0.85f) * 0.9375f;
+    transient_ = 1.27f + tone_ * 0.60f + attack_fm_amount_ * 0.80f;
+  }
+
+  float Process() {
+    amp_env_ *= amp_decay_;
+    pitch_env_ *= pitch_decay_;
+    transient_ *= transient_decay_;
+
+    const float fm_envelope = drums_internal::Lerp(1.45f, 0.50f, tone_);
+    float freq = freq_hz_ * (1.0f + pitch_env_ * fm_envelope);
+    freq = drums_internal::Clamp(freq, 10.0f, sample_rate_ * 0.25f);
+
+    phase_ = drums_internal::Wrap01(phase_ + freq / sample_rate_);
+
+    const float self_fm = amp_env_ * (0.03f + 0.18f * self_fm_amount_);
+    const float warped_phase =
+      drums_internal::Wrap01(phase_ + sinf(phase_ * 6.28318530718f) * self_fm);
+
+    const float fundamental = sinf(warped_phase * 6.28318530718f);
+    const float overtone =
+      sinf(warped_phase * 12.56637061436f) * (0.06f + 0.14f * tone_ + 0.08f * self_fm_amount_);
+    const float body = body_shaper_.Process(fundamental + overtone) * amp_env_;
+    const float click = click_shape_.Process(transient_) * transient_
+      * (0.28f + 0.34f * tone_ + 0.20f * attack_fm_amount_);
+    const float sustain_body =
+      body_shaper_.Process(fundamental * 0.25f) * sustain_ * 0.08f;
+
+    const float raw = ((body * 1.18f) + click + sustain_body) * 0.953f;
+
+    // Match the existing DRUMS.ino gain staging where MODEL_GAIN[0] is 8.0f.
+    return drums_internal::SoftClip(raw) * 0.125f;
   }
 
  private:
-  static DrumParameters Sanitize(const DrumParameters& input) {
-    DrumParameters output = input;
-    output.tune = DrumClamp01(output.tune);
-    output.tone = DrumClamp01(output.tone);
-    output.level = DrumClamp01(output.level);
-    output.decay = DrumClamp01(output.decay);
-    return output;
-  }
-
   void UpdateCoefficients() {
-    bodyDecay_ = DrumDecayCoefficient(sampleRate_, DrumLerp(0.020f, 0.42f, parameters_.decay));
-    noiseDecay_ = DrumDecayCoefficient(sampleRate_, DrumLerp(0.018f, 0.55f, parameters_.decay));
-    transientDecay_ = DrumDecayCoefficient(sampleRate_, 0.0022f);
-    noiseLp_.SetCutoff(DrumLerp(5200.0f, 13000.0f, parameters_.tone));
-    noiseHp_.SetCutoff(DrumLerp(1400.0f, 4200.0f, parameters_.tone));
-    clickLp_.SetCutoff(DrumLerp(3600.0f, 10500.0f, parameters_.tone));
-    clickHp_.SetCutoff(2200.0f);
+    const float decay_norm = drums_internal::Clamp01((decay_seconds_ - 0.02f) / 1.98f);
+    const float amp_seconds =
+      drums_internal::Clamp(decay_seconds_ + sustain_ * 0.30f, 0.02f, 2.2f);
+
+    amp_decay_ = drums_internal::DecayCoefficient(sample_rate_, amp_seconds);
+    pitch_decay_ = drums_internal::DecayCoefficient(
+      sample_rate_, drums_internal::Lerp(0.007f, 0.040f, decay_norm));
+    transient_decay_ = drums_internal::DecayCoefficient(
+      sample_rate_, drums_internal::Lerp(0.0009f, 0.0032f, tone_));
+
+    click_shape_.SetCutoff(
+      drums_internal::Lerp(1800.0f, 7600.0f, tone_) + attack_fm_amount_ * 1200.0f);
+    body_shaper_.SetCutoff(
+      drums_internal::Lerp(1200.0f, 4200.0f, tone_) + self_fm_amount_ * 600.0f);
   }
 
-  float sampleRate_;
-  DrumParameters parameters_;
-  DrumNoise noiseGen_;
-  OnePoleLowPass noiseLp_;
-  OnePoleHighPass noiseHp_;
-  OnePoleHighPass clickHp_;
-  OnePoleLowPass clickLp_;
-  float phase1_;
-  float phase2_;
-  float bodyEnv_;
-  float noiseEnv_;
+  float sample_rate_;
+  float tone_;
+  float decay_seconds_;
+  float freq_hz_;
+  float sustain_;
+  float attack_fm_amount_;
+  float self_fm_amount_;
+
+  drums_internal::OnePoleLowPass click_shape_;
+  drums_internal::OnePoleLowPass body_shaper_;
+
+  float phase_;
+  float amp_env_;
+  float pitch_env_;
   float transient_;
-  float bodyDecay_;
-  float noiseDecay_;
-  float transientDecay_;
+  float amp_decay_;
+  float pitch_decay_;
+  float transient_decay_;
 };
 
-class DrumVoiceBank {
+class BassDrum909 {
  public:
-  void Init(float sampleRate) {
-    sampleRate_ = sampleRate;
-    currentModel_ = MODEL_808KICK;
+  void Init(float sample_rate) { drum_.Init(sample_rate); }
 
-    kick808_.Init(sampleRate_);
-    hats_.Init(sampleRate_);
-    snare_.Init(sampleRate_);
+  void SetTone(float tone) { drum_.SetTone(tone); }
+  void SetDecay(float decay) { drum_.SetDecay(decay); }
+  void SetFreq(float freq) { drum_.SetFreq(freq); }
+  void SetDirtiness(float dirtiness) { drum_.SetDirtiness(dirtiness); }
+  void SetFmEnvelopeAmount(float amount) { drum_.SetFmEnvelopeAmount(amount); }
+  void SetFmEnvelopeDecay(float decay) { drum_.SetFmEnvelopeDecay(decay); }
 
-    for (uint8_t i = 0; i < NUM_DRUM_MODELS; ++i) {
-      parameters_[i] = kDefaultDrumParameters[i];
-      SetParameters(i, parameters_[i]);
-    }
-  }
+  void Trig() { drum_.Trig(); }
 
-  void SetModel(uint8_t model) {
-    if (model >= NUM_DRUM_MODELS) model = MODEL_808KICK;
-    currentModel_ = model;
-  }
-
-  void SetParameters(uint8_t model, const DrumParameters& parameters) {
-    if (model >= NUM_DRUM_MODELS) return;
-
-    parameters_[model].tune = DrumClamp01(parameters.tune);
-    parameters_[model].tone = DrumClamp01(parameters.tone);
-    parameters_[model].level = DrumClamp01(parameters.level);
-    parameters_[model].decay = DrumClamp01(parameters.decay);
-
-    switch (model) {
-      case MODEL_808KICK:
-        kick808_.SetParameters(parameters_[model]);
-        break;
-      case MODEL_HIHATS:
-        hats_.SetParameters(parameters_[model]);
-        break;
-      default:
-        snare_.SetParameters(parameters_[model]);
-        break;
-    }
-  }
-
-  void Trigger() {
-    switch (currentModel_) {
-      case MODEL_808KICK:
-        kick808_.Trigger();
-        break;
-      case MODEL_HIHATS:
-        hats_.Trigger();
-        break;
-      default:
-        snare_.Trigger();
-        break;
-    }
-  }
-
-  inline float Process() {
-    switch (currentModel_) {
-      case MODEL_808KICK:
-        return kick808_.Process() * kDrumOutputGain[MODEL_808KICK];
-      case MODEL_HIHATS:
-        return hats_.Process() * kDrumOutputGain[MODEL_HIHATS];
-      default:
-        return snare_.Process() * kDrumOutputGain[MODEL_SNARE];
-    }
-  }
+  float Process() { return drum_.Process(); }
 
  private:
-  float sampleRate_;
-  uint8_t currentModel_;
-  DrumParameters parameters_[NUM_DRUM_MODELS];
-  Kick808Voice kick808_;
-  HiHatVoice hats_;
-  SnareVoice snare_;
+  daisysp::SyntheticBassDrum drum_;
+};
+
+class SnareDrum808 {
+ public:
+  void Init(float sample_rate) { drum_.Init(sample_rate); }
+  
+
+  void SetSustain(float sustain) { drum_.SetSustain(sustain); }
+  void SetDecay(float decay) { drum_.SetDecay(decay); }
+  void SetFreq(float freq) { drum_.SetFreq(freq); }
+  void SetTone(float tone) { drum_.SetTone(tone); }
+  void SetSnappy(float snappy) { drum_.SetSnappy(snappy); }
+  
+  void Trig() { drum_.Trig(); }
+
+  float Process() { return drum_.Process(); }
+
+ private:
+  drums_internal::AnalogSnareDrumLocal drum_;
+  
+};
+
+class SnareDrum909 {
+ public:
+  void Init(float sample_rate) { drum_.Init(sample_rate); }
+  
+
+  void SetSustain(float sustain) { drum_.SetSustain(sustain); }
+  void SetDecay(float decay) { drum_.SetDecay(decay); }
+  void SetFreq(float freq) { drum_.SetFreq(freq); }
+  void SetFmAmount(float amount) { drum_.SetFmAmount(amount); }
+  void SetSnappy(float snappy) { drum_.SetSnappy(snappy); }
+  
+  void Trig() { drum_.Trig(); }
+
+  float Process() { return drum_.Process(); }
+
+ private:
+  daisysp::SyntheticSnareDrum drum_;
+  
+};
+
+class Hihat {
+ public:
+  void Init(float sample_rate) { drum_.Init(sample_rate); }
+  
+
+  void SetSustain(float sustain) { drum_.SetSustain(sustain); }
+  void SetDecay(float decay) { drum_.SetDecay(decay); }
+  void SetFreq(float freq) { drum_.SetFreq(freq); }
+  void SetNoisiness(float noisiness) { drum_.SetNoisiness(noisiness); }
+  void SetTone(float tone) { drum_.SetTone(tone); }
+  void Trig() { drum_.Trig(); }
+
+  float Process() { return drum_.Process(); }
+
+ private:
+  daisysp::HiHat <> drum_;
+
+  
 };
