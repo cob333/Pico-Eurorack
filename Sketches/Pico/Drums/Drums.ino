@@ -1,7 +1,7 @@
-// Copyright 2025 Rich Heslip
+// Copyright 2026 Rich Heslip
 //
 // Author: Rich Heslip
-// Contributor: SYNSO, Performance Optimization
+// Contributor: Wenhao Yang
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -25,585 +25,347 @@
 //
 // -----------------------------------------------------------------------------
 //
-/*
-Combined Drum Module - Optimized Version
-优化版本：查找表预计算、LED限频、音频路径查表
+// DaisySP drum models for 2HPico Eurorack module
+// Models: AnalogBassDrum, SyntheticBassDrum, HiHat, SyntheticSnare
+//
+// UI
+// Button: select model in order Analog BD (RED) -> Synth BD (ORANGE) -> HiHat (YELLOW) -> Synth Snare (GREEN)
+// Pot 1: Tune          (pitch)
+// Pot 2: Tone          (brightness)
+// Pot 3: Accent        (base accent level)
+// Pot 4: Decay         (tail length)
+//
+// Jacks
+// Top    : Trigger in (normal hit)
+// Middle : Trigger in (accent hit)
+// Bottom : Audio out
+//
+// RH / WY Mar 2026
 
-Top Jack - trigger input
-Middle Jack - Decay CV input
-Bottom Jack - output
-
-Top pot - Level
-Second pot - Tone
-Third pot - Decay
-Fourth pot - Frequency
-
-Button: switch model
-RED: 808 Bass
-ORANGE: 909 Bass  
-YELLOW: 808 Snare
-GREEN: 909 Snare
-TIFFANY: Hihat
-*/
-
-#include <2HPico.h>
-#include <EEPROM.h>
+#include "2HPico.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
-#include <math.h>
-#include <stdlib.h>
 #include "pico/multicore.h"
+#include <math.h>
+extern "C" {
+  #include "hardware/clocks.h"
+}
 
-// ==========================================
-// 配置与优化开关
-// ==========================================
-//#define DEBUG         // 注释掉以移除调试代码
-//#define MONITOR_CPU1  // 定义以启用CPU1监控（占用GPIO，建议关闭以提升性能）
+#define DEBUG           // comment out to remove debug code
+#define MONITOR_CPU1    // define to enable 2nd core monitoring on CPU_USE pin
 
-// 采样率选择：11025节省CPU，22050平衡，44100高质量
-//#define SAMPLERATE 22050
-#define SAMPLERATE 32000
+#define SAMPLERATE 22050
 //#define SAMPLERATE 44100
-// LED刷新率限制（毫秒）- 30fps约33ms，60fps约16ms
-#define LED_REFRESH_MS 33
-
-// 查找表大小（256提供足够精度，占用1KB RAM每表）
-#define LUT_SIZE 256
-
-// ADC范围（根据analogReadResolution设置，通常12bit=4096）
-#ifndef AD_RANGE
-#define AD_RANGE 4096
-#endif
-
-#define DECAY_CV_GAIN 2.0f
-#define DECAY_CV_DEADZONE 20
-#define TRIG_DEBOUNCE 20  // 假设值，根据2HPico.h实际值调整
-#define LONG_PRESS_SAVE_MS 3000
-#define EEPROM_BYTES 256
-#define DRUMS_STORE_MAGIC 0x3244524Du // "2DRM"
-#define DRUMS_STORE_VERSION 1u
-#define SAVE_FLASH_COUNT 3
-#define SAVE_FLASH_ON_MS 120
-#define SAVE_FLASH_OFF_MS 120
 
 Adafruit_NeoPixel LEDS(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);
-I2S DAC(OUTPUT);
+I2S DAC(OUTPUT);  // PT8211/PCM5102 etc.
 
 #include "daisysp.h"
+// pull in just the modules we need to keep binary size down
+#include "filters/svf.cpp"
+#include "synthesis/oscillator.cpp"
 #include "drums/analogbassdrum.cpp"
 #include "drums/synthbassdrum.cpp"
-#include "drums/synthsnaredrum.cpp"
 #include "drums/hihat.cpp"
-#include "Synthesis/oscillator.h"
-#include "filters/svf.cpp"
+#include "drums/synthsnaredrum.cpp"
 
-#include "DrumModels.h"
+using namespace daisysp;
 
-float samplerate = SAMPLERATE;
+float samplerate = SAMPLERATE;  // for DaisySP Init
 
-// ==========================================
-// 查找表（LUT）声明 - 用于消除运行时浮点运算
-// ==========================================
-float freq_lut[LUT_SIZE];        // 频率查找表
-float decay_909_lut[LUT_SIZE];   // 909衰减参数查找表
-float decay_time_lut[LUT_SIZE];  // 衰减时间查找表（秒）
-// 在 CMakeLists.txt 中指定段
-uint32_t __attribute__((section(".scratch_x"))) lut_freq[LUT_SIZE];
+// hardware mappings
+#define TRIGGER_IN TRIGGER   // top jack
+#define ACCENT_IN  AIN1      // middle jack used as a second trigger
 
-// ==========================================
-// 全局对象
-// ==========================================
-BassDrum808 bassDrum808;
-BassDrum909 bassDrum909;
-SnareDrum808 snareDrum808;
-SnareDrum909 snareDrum909;
-Hihat hihat;
+// UI state
+enum DrumModel { ANALOG_BD = 0, SYNTH_BD, HIHAT, SYNTH_SNARE, NUM_MODELS };
+volatile uint8_t currentModel = ANALOG_BD;
 
-enum Model { 
-  MODEL_BassDrum808,
-  MODEL_BassDrum909,
-  MODEL_SnareDrum808,
-  MODEL_SnareDrum909,
-  MODEL_Hihat
+struct ModelParams {
+  float tune;    // 0..1 normalized
+  float tone;    // 0..1 normalized
+  float accent;  // 0..1 normalized
+  float decay;   // 0..1 normalized
 };
 
-volatile Model current_model = MODEL_BassDrum808;
-
-// UI状态变量
-volatile float output_level = 1.0f;
-float param_tone = 0.5f;
-float ui_decay = 0.5f;
-float ui_freq = 0.5f;
-uint16_t cv2_zero = 0;
-
-bool trigger = 0;
-bool button = 0;
-bool button_long_handled = 0;
-uint32_t buttontimer, trigtimer, parameterupdate;
-uint32_t buttonpress = 0;
-
-struct DrumStore {
-  uint32_t magic;
-  uint16_t version;
-  uint8_t model;
-  uint8_t reserved0;
-  float output_level;
-  float param_tone;
-  float ui_decay;
-  float ui_freq;
-  uint32_t checksum;
+// per‑model defaults (normalized)
+ModelParams params[NUM_MODELS] = {
+  {0.40f, 0.40f, 0.80f, 0.55f}, // Analog BD (raise accent a bit)
+  {0.38f, 0.55f, 0.50f, 0.60f}, // Synth BD
+  {0.70f, 0.55f, 0.50f, 0.40f}, // HiHat
+  {0.45f, 0.65f, 0.55f, 0.50f}  // Synth Snare
 };
 
-// ==========================================
-// 辅助函数（内联强制编译器优化）
-// 注意：删除自定义mapf，使用库中的mapf或直接用除法
-// ==========================================
-static inline float clamp01(float x) {
-  return (x < 0.0f) ? 0.0f : (x > 1.0f ? 1.0f : x);
+// Per-model output gain to level-match (1.0 = unity)
+float modelGain[NUM_MODELS] = {
+  1.8f,  // Analog BD louder to match others
+  1.0f,  // Synth BD
+  1.0f,  // HiHat
+  1.0f   // Synth Snare
+};
+
+// DaisySP voice objects
+AnalogBassDrum    analogBD;
+SyntheticBassDrum synthBD;
+HiHat<>           hihat;
+SyntheticSnareDrum synthSnare;
+
+// inter-core flags
+volatile bool trigPending   = false;
+volatile bool accentPending = false;
+
+// debounce & timing
+uint32_t buttontimer = 0;
+uint32_t trigtimer   = 0;
+uint32_t accenttimer = 0;
+uint32_t parameterupdate = 0;
+
+bool buttonState = false;
+bool trigState   = false;
+bool accentState = false;
+
+// helpers
+static inline float clamp01(float v) {
+  if (v < 0.0f) return 0.0f;
+  if (v > 1.0f) return 1.0f;
+  return v;
 }
 
-static inline uint16_t norm_to_adc(float value) {
-  value = clamp01(value);
-  return (uint16_t)(value * (float)(AD_RANGE - 1));
+static inline float lerp(float a, float b, float t) {
+  return a + (b - a) * t;
 }
 
-// 快速ADC到浮点转换（0.0-1.0）
-static inline float adc_to_norm(uint16_t adc_val) {
-  return (float)adc_val / (float)AD_RANGE;
+static inline float potNorm(uint16_t reading) {
+  return (float)reading / (float)(AD_RANGE - 1);
 }
 
-// 快速ADC到浮点转换（0.0-1.0，上限AD_RANGE-1防止越界）
-static inline float adc_to_norm_safe(uint16_t adc_val) {
-  if (adc_val >= AD_RANGE) adc_val = AD_RANGE - 1;
-  return (float)adc_val / (float)(AD_RANGE - 1);
-}
-
-static inline uint16_t calibrate_decay_cv_zero() {
-  uint32_t sum = 0;
-  for (int i = 0; i < 16; ++i) {
-    sum += sampleCV2();
-  }
-  return (uint16_t)(sum / 16);
-}
-
-static inline float read_decay_cv_amount() {
-  int32_t cv_delta = (int32_t)cv2_zero - (int32_t)sampleCV2();
-  if (cv_delta < DECAY_CV_DEADZONE) return 0.0f;
-  if (cv_delta > AD_RANGE) cv_delta = AD_RANGE;
-  return clamp01((float)(cv_delta - DECAY_CV_DEADZONE) / (float)(AD_RANGE - DECAY_CV_DEADZONE));
-}
-
-// 传统计算函数（仅用于LUT预计算）
-static inline float knob_to_decay_time_calc(float knob) {
-  const float DECAY_MIN_SEC = 0.005f;
-  const float DECAY_MAX_SEC = 2.0f;
-  knob = clamp01(knob);
-  return DECAY_MIN_SEC + knob * (DECAY_MAX_SEC - DECAY_MIN_SEC);
-}
-
-static inline float knob_to_freq_hz_calc(float knob) {
-  const float FREQ_MIN_HZ = 10.0f;
-  const float FREQ_MAX_HZ = 120.0f;
-  knob = clamp01(knob);
-  const float ratio = FREQ_MAX_HZ / FREQ_MIN_HZ;
-  return FREQ_MIN_HZ * powf(ratio, knob);
-}
-
-static inline float decay_time_to_909_param_calc(float t, float sr) {
-  if (t <= 0.0f || sr <= 0.0f) return 0.0f;
-  const float exp_term = expf(-1.0f / (t * sr));
-  const float a = (0.02f * sr) * (1.0f - exp_term);
-  if (a <= 0.0f) return 0.0f;
-  float decay_internal = -0.2f * (logf(a) / logf(2.0f));
-  decay_internal = clamp01(decay_internal);
-  return sqrtf(decay_internal);
-}
-
-static uint32_t model_color(Model model) {
+static float tuneToHz(uint8_t model, float norm) {
   switch (model) {
-    case MODEL_BassDrum808: return RED;
-    case MODEL_BassDrum909: return ORANGE;
-    case MODEL_SnareDrum808: return YELLOW;
-    case MODEL_SnareDrum909: return GREEN;
-    case MODEL_Hihat: return TIFFANY;
-    default: return RED;
+    case ANALOG_BD:   return lerp(25.0f, 120.0f, norm);
+    case SYNTH_BD:    return lerp(25.0f, 140.0f, norm);
+    case HIHAT:       return lerp(1500.0f, 12000.0f, norm); // reduce top range to keep aliasing lower
+    case SYNTH_SNARE: return lerp(80.0f, 1200.0f, norm);
+    default:          return 100.0f;
   }
 }
 
-static void set_led_color(uint32_t color) {
-  LEDS.setPixelColor(0, color);
+static float decayForModel(uint8_t model, float norm) {
+  // small floor to avoid going to absolute zero
+  switch (model) {
+    case HIHAT:       return lerp(0.05f, 1.0f, norm);
+    case SYNTH_SNARE: return lerp(0.05f, 1.2f, norm);
+    default:          return clamp01(norm);
+  }
+}
+
+static void setLedForModel(uint8_t model) {
+  switch (model) {
+    case ANALOG_BD:   LEDS.setPixelColor(0, RED);    break;
+    case SYNTH_BD:    LEDS.setPixelColor(0, ORANGE); break;
+    case HIHAT:       LEDS.setPixelColor(0, YELLOW); break;
+    case SYNTH_SNARE: LEDS.setPixelColor(0, GREEN);  break;
+    default:          LEDS.setPixelColor(0, GREY);   break;
+  }
   LEDS.show();
 }
 
-static void set_led_for_model(Model model) {
-  set_led_color(model_color(model));
-}
+static void applyParamsToModel(uint8_t model) {
+  ModelParams p = params[model];
+  float tuneHz  = tuneToHz(model, clamp01(p.tune));
+  float tone    = clamp01(p.tone);
+  float accent  = clamp01(p.accent);
+  float decay   = decayForModel(model, clamp01(p.decay));
 
-static uint32_t drum_store_checksum(const DrumStore &data) {
-  uint32_t hash = 2166136261u;
-  const uint8_t *raw = reinterpret_cast<const uint8_t*>(&data);
-  for (uint32_t i = 0; i < (uint32_t)(sizeof(DrumStore) - sizeof(uint32_t)); ++i) {
-    hash ^= raw[i];
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-static void copy_state_to_store(DrumStore &data) {
-  memset(&data, 0, sizeof(data));
-  data.magic = DRUMS_STORE_MAGIC;
-  data.version = DRUMS_STORE_VERSION;
-  data.model = (uint8_t)current_model;
-  data.output_level = clamp01(output_level);
-  data.param_tone = clamp01(param_tone);
-  data.ui_decay = clamp01(ui_decay);
-  data.ui_freq = clamp01(ui_freq);
-}
-
-static bool validate_store(const DrumStore &data) {
-  if (data.magic != DRUMS_STORE_MAGIC) return 0;
-  if (data.version != DRUMS_STORE_VERSION) return 0;
-  if (data.model > (uint8_t)MODEL_Hihat) return 0;
-  if (data.output_level < 0.0f || data.output_level > 1.0f) return 0;
-  if (data.param_tone < 0.0f || data.param_tone > 1.0f) return 0;
-  if (data.ui_decay < 0.0f || data.ui_decay > 1.0f) return 0;
-  if (data.ui_freq < 0.0f || data.ui_freq > 1.0f) return 0;
-  return data.checksum == drum_store_checksum(data);
-}
-
-static bool load_state_from_flash() {
-  DrumStore data;
-  EEPROM.get(0, data);
-  if (!validate_store(data)) return 0;
-
-  current_model = (Model)data.model;
-  output_level = data.output_level;
-  param_tone = data.param_tone;
-  ui_decay = data.ui_decay;
-  ui_freq = data.ui_freq;
-
-  pot[0] = norm_to_adc(output_level);
-  pot[1] = norm_to_adc(param_tone);
-  pot[2] = norm_to_adc(ui_decay);
-  pot[3] = norm_to_adc(ui_freq);
-  return 1;
-}
-
-static bool save_state_to_flash() {
-  DrumStore data;
-  copy_state_to_store(data);
-  data.checksum = drum_store_checksum(data);
-  EEPROM.put(0, data);
-  return EEPROM.commit();
-}
-
-static void flash_save_success() {
-  for (int i = 0; i < SAVE_FLASH_COUNT; ++i) {
-    set_led_color(GREEN);
-    delay(SAVE_FLASH_ON_MS);
-    set_led_color(0);
-    delay(SAVE_FLASH_OFF_MS);
-  }
-  set_led_for_model((Model)current_model);
-}
-
-// ==========================================
-// 查找表初始化（setup中调用一次）
-// ==========================================
-void init_lookup_tables() {
-  for(int i=0; i<LUT_SIZE; i++) {
-    float knob = i / (float)(LUT_SIZE - 1);
-    
-    freq_lut[i] = knob_to_freq_hz_calc(knob);
-    float decay_sec = knob_to_decay_time_calc(knob);
-    decay_time_lut[i] = decay_sec;
-    decay_909_lut[i] = decay_time_to_909_param_calc(decay_sec, samplerate);
+  switch (model) {
+    case ANALOG_BD:
+      analogBD.SetFreq(tuneHz);
+      analogBD.SetTone(tone);
+      analogBD.SetAccent(accent);
+      analogBD.SetDecay(decay);
+      break;
+    case SYNTH_BD:
+      synthBD.SetFreq(tuneHz);
+      synthBD.SetTone(tone);
+      synthBD.SetAccent(accent);
+      synthBD.SetDecay(decay);
+      // leave dirtiness/FM at library defaults
+      break;
+    case HIHAT:
+      hihat.SetFreq(tuneHz);
+      hihat.SetTone(tone);
+      hihat.SetAccent(accent);
+      hihat.SetDecay(decay);
+      hihat.SetNoisiness(0.25f + 0.65f * (1.0f - tone)); // darker tone = more noise
+      break;
+    case SYNTH_SNARE:
+      synthSnare.SetFreq(tuneHz);
+      synthSnare.SetSnappy(tone);
+      synthSnare.SetAccent(accent);
+      synthSnare.SetDecay(decay);
+      synthSnare.SetFmAmount(0.05f + 0.9f * tone);
+      break;
+    default:
+      break;
   }
 }
 
-// 快速LUT访问（内联）
-static inline float fast_freq(uint16_t adc_val) {
-  uint32_t idx = ((uint32_t)adc_val * (LUT_SIZE - 1)) / AD_RANGE;
-  if(idx >= LUT_SIZE) idx = LUT_SIZE - 1;
-  return freq_lut[idx];
+static void triggerCurrentModel(bool accentHit) {
+  uint8_t model = currentModel;
+  float baseAccent = clamp01(params[model].accent);
+  float hitAccent  = accentHit ? 1.0f : baseAccent;
+
+  // temporarily push accent up for accented hits
+  switch (model) {
+    case ANALOG_BD:   analogBD.SetAccent(hitAccent);   analogBD.Trig();   if (accentHit) analogBD.SetAccent(baseAccent);   break;
+    case SYNTH_BD:    synthBD.SetAccent(hitAccent);    synthBD.Trig();    if (accentHit) synthBD.SetAccent(baseAccent);    break;
+    case HIHAT:       hihat.SetAccent(hitAccent);      hihat.Trig();      if (accentHit) hihat.SetAccent(baseAccent);      break;
+    case SYNTH_SNARE: synthSnare.SetAccent(hitAccent); synthSnare.Trig(); if (accentHit) synthSnare.SetAccent(baseAccent); break;
+    default:          break;
+  }
 }
 
-static inline float fast_decay_909(uint16_t adc_val) {
-  uint32_t idx = ((uint32_t)adc_val * (LUT_SIZE - 1)) / AD_RANGE;
-  if(idx >= LUT_SIZE) idx = LUT_SIZE - 1;
-  return decay_909_lut[idx];
-}
-
-static inline float fast_decay_time(uint16_t adc_val) {
-  uint32_t idx = ((uint32_t)adc_val * (LUT_SIZE - 1)) / AD_RANGE;
-  if(idx >= LUT_SIZE) idx = LUT_SIZE - 1;
-  return decay_time_lut[idx];
-}
-
-// ==========================================
-// 音频处理函数指针表优化（Core 1）
-// ==========================================
-typedef float (*DrumProcessFunc)(void);
-
-static inline float proc_808(void) { return bassDrum808.Process(); }
-static inline float proc_909(void) { return bassDrum909.Process(); }
-static inline float proc_snare808(void) { return snareDrum808.Process(); }
-static inline float proc_snare909(void) { return snareDrum909.Process(); }
-static inline float proc_hihat(void) { return hihat.Process(); }
-
-DrumProcessFunc const DRUM_PROCESS_TABLE[] = {
-  proc_808,
-  proc_909,
-  proc_snare808,
-  proc_snare909,
-  proc_hihat
-};
-
-const float MODEL_GAIN[] = {
-  8.0f,
-  1.0f,
-  0.5f,
-  0.5f,
-  1.0f
-};
-
-#define NUM_DRUM_MODELS 5
-
-// ==========================================
-// Setup
-// ==========================================
 void setup() {
+  Serial.begin(115200);
+#ifdef DEBUG
+  Serial.println("Drums setup");
+#endif
 
+  // bump system clock before bringing up peripherals
 
-  pinMode(TRIGGER, INPUT_PULLUP);
+  pinMode(TRIGGER_IN, INPUT_PULLUP); // trigger inputs are inverted on this hardware
+  pinMode(ACCENT_IN, INPUT_PULLUP);
   pinMode(BUTTON1, INPUT_PULLUP);
-  pinMode(MUXCTL, OUTPUT);
+  pinMode(MUXCTL, OUTPUT);  // analog mux for the four pots
+
+#ifdef MONITOR_CPU1
+  pinMode(CPU_USE, OUTPUT); // hi = core1 busy
+#endif
+
+  analogBD.Init(samplerate);
+  synthBD.Init(samplerate);
+  hihat.Init(samplerate);
+  synthSnare.Init(samplerate);
+
+  analogReadResolution(AD_BITS); // max ADC resolution
 
   LEDS.begin();
-  set_led_for_model((Model)current_model);
+  setLedForModel(currentModel);
 
-  analogReadResolution(AD_BITS);
-  cv2_zero = calibrate_decay_cv_zero();
-  samplepots();
-  EEPROM.begin(EEPROM_BYTES);
-  bool loaded = load_state_from_flash();
-  (void)loaded;
-  output_level = adc_to_norm_safe(pot[0]);
+  applyParamsToModel(currentModel);
 
-  init_lookup_tables();
-
-  bassDrum808.Init(samplerate);
-  bassDrum909.Init(samplerate);
-  snareDrum909.Init(samplerate);
-  snareDrum808.Init(samplerate);
-  hihat.Init(samplerate);
-
-  const float init_freq = fast_freq(AD_RANGE/2);
-  const float init_decay_time = fast_decay_time(AD_RANGE/4);
-  const float init_decay_909 = fast_decay_909(AD_RANGE/4);
-
-  bassDrum808.SetTone(param_tone / 2);
-  bassDrum808.SetDecay(init_decay_time);
-  bassDrum808.SetFreq(init_freq * 2);
-  bassDrum808.SetAttackFmAmount(0.5f);
-  bassDrum808.SetSelfFmAmount(1.0f);
-  bassDrum808.SetSustain(0.0f);
-
-  bassDrum909.SetDirtiness(0.2f);
-  bassDrum909.SetFmEnvelopeAmount(0.5f);
-  bassDrum909.SetFmEnvelopeDecay(0.3f);
-  bassDrum909.SetFreq(init_freq);
-  bassDrum909.SetDecay(init_decay_909);
-  bassDrum909.SetTone(param_tone);
-
-  snareDrum909.SetFmAmount(0.5f);
-  snareDrum909.SetSnappy(0.7f);
-  snareDrum909.SetFreq(init_freq);
-  snareDrum909.SetDecay(init_decay_909);
-  snareDrum909.SetSustain(0);
-
-  snareDrum808.SetTone(0.5f);
-  snareDrum808.SetSnappy(0.7f);
-  snareDrum808.SetFreq(init_freq);
-  snareDrum808.SetDecay(init_decay_909);
-  snareDrum808.SetSustain(0);
-
-  hihat.SetTone(0.5f);
-  hihat.SetNoisiness(0.5f);
-  hihat.SetFreq(init_freq*4);
-  hihat.SetDecay(init_decay_909);
-  hihat.SetSustain(0.0f);
-
+  // set up Pico I2S for PT8211 stereo DAC
   DAC.setBCLK(BCLK);
   DAC.setDATA(I2S_DATA);
   DAC.setBitsPerSample(16);
-  DAC.setBuffers(1, 128, 0);
-  DAC.setLSBJFormat();
+  DAC.setBuffers(1, 128, 0); // DMA buffer - 32 bit L/R words
+  DAC.setLSBJFormat();       // needed for PT8211 which has funny timing
   DAC.begin(SAMPLERATE);
 
-  set_led_for_model((Model)current_model);
-  lockpots();
-
 #ifdef DEBUG
-  Serial.println("finished setup");
+  Serial.println("Drums ready");
 #endif
 }
 
-// ==========================================
-// Main Loop (Core 0) - UI与逻辑处理
-// ==========================================
 void loop() {
-  // 按钮处理
+  // model select button
   if (!digitalRead(BUTTON1)) {
-    if (((millis() - buttontimer) > DEBOUNCE) && !button) {
-      button = 1;
-      buttonpress = millis();
-      button_long_handled = 0;
-    } else if (button && !button_long_handled
-               && ((millis() - buttonpress) >= LONG_PRESS_SAVE_MS)) {
-      button_long_handled = 1;
-      if (save_state_to_flash()) {
-        flash_save_success();
-      } else {
-        set_led_for_model((Model)current_model);
-      }
+    if (((millis() - buttontimer) > DEBOUNCE) && !buttonState) {
+      buttonState = true;
+      currentModel = (currentModel + 1) % NUM_MODELS;
+      setLedForModel(currentModel);
+      lockpots();
+      applyParamsToModel(currentModel); // push stored defaults for new model
     }
   } else {
-    if (button && !button_long_handled) {
-      switch (current_model) {
-        case MODEL_BassDrum808: current_model = MODEL_BassDrum909; break;
-        case MODEL_BassDrum909: current_model = MODEL_SnareDrum808; break;
-        case MODEL_SnareDrum808: current_model = MODEL_SnareDrum909; break;
-        case MODEL_SnareDrum909: current_model = MODEL_Hihat; break;
-        default: current_model = MODEL_BassDrum808; break;
-      }
-      lockpots();
-    }
     buttontimer = millis();
-    button = 0;
-    button_long_handled = 0;
+    buttonState = false;
   }
 
-  // 参数更新（每10ms）
-  if ((millis() - parameterupdate) > 10) {
+  // read pots and update parameters periodically
+  if ((millis() - parameterupdate) > PARAMETERUPDATE) {
     parameterupdate = millis();
     samplepots();
-
-    // 使用直接除法替代mapf，避免函数重载歧义
-    output_level = adc_to_norm_safe(pot[0]);
-    if (!potlock[1]) param_tone = adc_to_norm(pot[1]);
-    if (!potlock[2]) ui_decay = adc_to_norm(pot[2]);
-    if (!potlock[3]) ui_freq = adc_to_norm_safe(pot[3]);
-
-    uint16_t freq_adc = pot[3];
-    
-    float freq_hz = fast_freq(freq_adc);
-    float decay_cv = read_decay_cv_amount();
-    float decay_knob = clamp01(ui_decay + (decay_cv * DECAY_CV_GAIN));
-    float decay_sec = knob_to_decay_time_calc(decay_knob);
-    float decay_909 = decay_time_to_909_param_calc(decay_sec, samplerate);
- 
-    switch(current_model) {
-      case MODEL_BassDrum808:
-        bassDrum808.SetTone(param_tone / 4);
-        bassDrum808.SetDecay(decay_sec);
-        bassDrum808.SetFreq(freq_hz * 2);
-        break;
-        
-      case MODEL_BassDrum909:
-        bassDrum909.SetFreq(freq_hz * 2);
-        bassDrum909.SetDecay(decay_909);
-        bassDrum909.SetTone(param_tone / 2);
-        bassDrum909.SetFmEnvelopeAmount(param_tone);
-        bassDrum909.SetDirtiness(param_tone / 4);
-        break;
-        
-      case MODEL_SnareDrum808:
-        snareDrum808.SetDecay(decay_sec / 4);
-        snareDrum808.SetFreq(freq_hz * 3);
-        snareDrum808.SetTone(ui_freq/2);
-        snareDrum808.SetSnappy(param_tone);
-        break;
-        
-      case MODEL_SnareDrum909:
-        snareDrum909.SetDecay(decay_sec / 2);
-        snareDrum909.SetFreq(freq_hz * 4);
-        snareDrum909.SetFmAmount(param_tone);
-        snareDrum909.SetSnappy(param_tone);
-        break;
-        
-      case MODEL_Hihat:
-        hihat.SetDecay(decay_sec / 2);
-        hihat.SetFreq(freq_hz);
-        hihat.SetTone(ui_freq/3+0.5);
-        hihat.SetNoisiness(param_tone);
-        break;
-    }
+    ModelParams &p = params[currentModel];
+    if (!potlock[0]) p.tune   = potNorm(pot[0]);
+    if (!potlock[1]) p.tone   = potNorm(pot[1]);
+    if (!potlock[2]) p.accent = potNorm(pot[2]);
+    if (!potlock[3]) p.decay  = potNorm(pot[3]);
+    applyParamsToModel(currentModel);
   }
 
-  // 触发处理
-  if (!digitalRead(TRIGGER)) {
-    if (((micros() - trigtimer) > TRIG_DEBOUNCE) && !trigger) {
-      trigger = 1;
-      switch(current_model) {
-        case MODEL_BassDrum808: bassDrum808.Trig(); break;
-        case MODEL_BassDrum909: bassDrum909.Trig(); break;
-        case MODEL_SnareDrum808: snareDrum808.Trig(); break;
-        case MODEL_SnareDrum909: snareDrum909.Trig(); break;
-        case MODEL_Hihat: hihat.Trig(); break;
-      }
+  // normal trigger (top jack)
+  if (!digitalRead(TRIGGER_IN)) {
+    if (((millis() - trigtimer) > TRIG_DEBOUNCE) && !trigState) {
+      trigState = true;
+      trigPending = true;
     }
   } else {
-    trigtimer = micros();
-    trigger = 0;
+    trigtimer = millis();
+    trigState = false;
   }
 
-  // LED刷新率优化
-  static uint32_t last_led_update = 0;
-  static Model last_model = MODEL_BassDrum808;
-  uint32_t now = millis();
-  
-  if (now - last_led_update >= LED_REFRESH_MS) {
-    last_led_update = now;
-    
-    if (current_model != last_model) {
-      last_model = current_model;
-      
-      uint32_t color;
-      color = model_color(current_model);
-      set_led_color(color);
+  // accent trigger (middle jack)
+  if (!digitalRead(ACCENT_IN)) {
+    if (((millis() - accenttimer) > TRIG_DEBOUNCE) && !accentState) {
+      accentState = true;
+      accentPending = true;
     }
+  } else {
+    accenttimer = millis();
+    accentState = false;
   }
 }
 
-// ==========================================
-// Core 1 Setup
-// ==========================================
+// second core setup
 void setup1() {
-  delay(1000);
+  delay(1000); // wait for core0 to bring up peripherals
 }
 
-// ==========================================
-// Core 1 Audio Loop - 极致优化版本
-// ==========================================
+// process audio samples on core1
 void loop1() {
-  float sig;        // 移除register关键字(C++17兼容)
-  int32_t outsample;
-  
-  uint8_t model_idx = (uint8_t)current_model;
-  if (model_idx >= NUM_DRUM_MODELS) model_idx = 0;
+  static float sig = 0.0f;
+  static int32_t outsample = 0;
 
-  sig = DRUM_PROCESS_TABLE[model_idx]();
-  sig *= MODEL_GAIN[model_idx];
-  sig *= output_level;
-  
+  bool fireAccent = false;
+  bool fireNormal = false;
+
+  // service trigger flags
+  if (accentPending) {
+    fireAccent = true;
+    accentPending = false;
+  } else if (trigPending) {
+    fireNormal = true;
+    trigPending = false;
+  }
+
+  if (fireAccent || fireNormal) {
+    triggerCurrentModel(fireAccent);
+  }
+
+  switch (currentModel) {
+    case ANALOG_BD:   sig = analogBD.Process();   break;
+    case SYNTH_BD:    sig = synthBD.Process();    break;
+    case HIHAT:       sig = hihat.Process();      break;
+    case SYNTH_SNARE: sig = synthSnare.Process(); break;
+    default:          sig = 0.0f;                 break;
+  }
+
+  // apply per-model gain and soft clip
+  sig *= modelGain[currentModel];
   if (sig > 1.0f) sig = 1.0f;
-  else if (sig < -1.0f) sig = -1.0f;
-  
-  outsample = (int32_t)(sig * 32767.0f);
-  int16_t out = (int16_t)outsample;
-  
-  DAC.write(out);
-  DAC.write(out);
+  if (sig < -1.0f) sig = -1.0f;
 
+  // properly convert float -1.0..1.0 to int16 sample
+  outsample = (int32_t)(sig * 32767.0f);
+
+#ifdef MONITOR_CPU1
+  digitalWrite(CPU_USE, 0); // low = waiting for DMA slot
+#endif
+
+  DAC.write((int16_t)outsample); // left
+  DAC.write((int16_t)outsample); // right
+
+#ifdef MONITOR_CPU1
+  digitalWrite(CPU_USE, 1); // hi = core1 busy
+#endif
 }
