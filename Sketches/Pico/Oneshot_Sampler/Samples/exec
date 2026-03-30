@@ -1,0 +1,207 @@
+#!/bin/zsh
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TOOL="$SCRIPT_DIR/wav2header44khz"
+
+typeset -a BANK_TAGS
+typeset -a BANK_HEADERS
+typeset -a BANK_NAMES
+typeset -A USED_TAGS
+
+cd "$SCRIPT_DIR"
+
+sanitize_symbol() {
+  local raw="$1"
+  local symbol
+  symbol="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g; s/_\+/_/g; s/^_//; s/_$//')"
+  if [[ -z "$symbol" ]]; then
+    symbol="bank"
+  fi
+  if [[ "$symbol" != [a-z_]* ]]; then
+    symbol="bank_${symbol}"
+  fi
+  printf '%s\n' "$symbol"
+}
+
+unique_tag() {
+  local base="$1"
+  local tag="$base"
+  local suffix=2
+
+  while [[ -n "${USED_TAGS[$tag]-}" ]]; do
+    tag="${base}_${suffix}"
+    ((suffix++))
+  done
+  USED_TAGS[$tag]=1
+  printf '%s\n' "$tag"
+}
+
+dir_has_wavs() {
+  local dir="$1"
+  local count
+  count="$(find "$dir" -maxdepth 1 -type f \( -iname '*.wav' -o -iname '*.WAV' \) | wc -l | tr -d ' ')"
+  [[ "$count" != "0" ]]
+}
+
+cleanup_bank_dir() {
+  local dir="$1"
+  local manifest="$dir/samples.h"
+
+  if [[ -f "$manifest" ]] && grep -q 'sampledefs.h' "$manifest"; then
+    while IFS= read -r header; do
+      [[ "$header" == "sampledefs.h" ]] && continue
+      [[ -f "$dir/$header" ]] && rm -f "$dir/$header"
+    done < <(sed -n 's/^#include "\(.*\.h\)"/\1/p' "$manifest")
+  fi
+
+  rm -f "$dir/samples.h" "$dir/sampledefs.h"
+}
+
+build_bank_header() {
+  local source_dir="$1"
+  local display_name="$2"
+  local tag="$3"
+  local include_prefix="$4"
+  local header_file="$SCRIPT_DIR/bank_${tag}.h"
+  local escaped_name
+
+  escaped_name="$(printf '%s' "$display_name" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+
+  {
+    echo "#pragma once"
+    while IFS= read -r header; do
+      [[ "$header" == "sampledefs.h" ]] && continue
+      echo "#include \"${include_prefix}${header}\""
+    done < <(sed -n 's/^#include "\(.*\.h\)"/\1/p' "$source_dir/samples.h")
+    echo
+    awk -v tag="$tag" '
+      /^} sample\[\] = \{/ {
+        print "static sample_t bank_" tag "_samples[] = {";
+        emit = 1;
+        next;
+      }
+      emit { print }
+    ' "$source_dir/sampledefs.h"
+    echo
+    echo "static const uint16_t bank_${tag}_count = (uint16_t)(sizeof(bank_${tag}_samples) / sizeof(sample_t));"
+    echo "static const char * const bank_${tag}_name = \"${escaped_name}\";"
+  } > "$header_file"
+
+  BANK_TAGS+=("$tag")
+  BANK_HEADERS+=("bank_${tag}.h")
+  BANK_NAMES+=("$display_name")
+}
+
+convert_bank_dir() {
+  local source_dir="$1"
+  local display_name="$2"
+  local base_tag
+  local tag
+  local include_prefix=""
+
+  base_tag="$(sanitize_symbol "$display_name")"
+  tag="$(unique_tag "$base_tag")"
+
+  if [[ "$source_dir" != "$SCRIPT_DIR" ]]; then
+    include_prefix="$(basename "$source_dir")/"
+  fi
+
+  cleanup_bank_dir "$source_dir"
+
+  echo "Converting bank: $display_name"
+  echo "  $source_dir"
+  (
+    cd "$source_dir"
+    "$TOOL"
+  )
+
+  if [[ ! -f "$source_dir/samples.h" || ! -f "$source_dir/sampledefs.h" ]]; then
+    echo "error: conversion failed for bank:"
+    echo "  $display_name"
+    exit 1
+  fi
+
+  build_bank_header "$source_dir" "$display_name" "$tag" "$include_prefix"
+}
+
+generate_master_headers() {
+  local banks_header="$SCRIPT_DIR/banks.h"
+  local wrapper_header="$SCRIPT_DIR/samples.h"
+  local i
+
+  {
+    echo "#pragma once"
+    echo "#include <stdint.h>"
+    echo
+    echo "struct sample_t {"
+    echo "  const int16_t * samplearray;"
+    echo "  uint32_t samplesize;"
+    echo "  uint32_t sampleindex;"
+    echo "  uint8_t MIDINOTE;"
+    echo "  uint8_t play_volume;"
+    echo "  char sname[20];"
+    echo "};"
+    echo
+    echo "struct sample_bank_t {"
+    echo "  sample_t *samples;"
+    echo "  uint16_t count;"
+    echo "  const char *name;"
+    echo "};"
+    echo
+    for ((i = 1; i <= ${#BANK_HEADERS[@]}; ++i)); do
+      echo "#include \"${BANK_HEADERS[i]}\""
+    done
+    echo
+    echo "static sample_bank_t sample_banks[] = {"
+    for ((i = 1; i <= ${#BANK_TAGS[@]}; ++i)); do
+      echo "  {bank_${BANK_TAGS[i]}_samples, bank_${BANK_TAGS[i]}_count, bank_${BANK_TAGS[i]}_name},"
+    done
+    echo "};"
+    echo
+    echo "#define NUM_BANKS ((uint16_t)(sizeof(sample_banks) / sizeof(sample_bank_t)))"
+  } > "$banks_header"
+
+  {
+    echo "#pragma once"
+    echo "#include \"banks.h\""
+  } > "$wrapper_header"
+}
+
+if [[ ! -f "$TOOL" ]]; then
+  echo "error: wav2header44khz not found in:"
+  echo "  $SCRIPT_DIR"
+  exit 1
+fi
+
+chmod +x "$TOOL"
+rm -f "$SCRIPT_DIR"/bank_*.h(N) "$SCRIPT_DIR"/banks.h "$SCRIPT_DIR"/samples.h
+
+if dir_has_wavs "$SCRIPT_DIR"; then
+  convert_bank_dir "$SCRIPT_DIR" "Default"
+fi
+
+while IFS= read -r subdir; do
+  if dir_has_wavs "$subdir"; then
+    convert_bank_dir "$subdir" "$(basename "$subdir")"
+  fi
+done < <(find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | sort)
+
+if [[ ${#BANK_TAGS[@]} -eq 0 ]]; then
+  echo "error: no wav files found in $SCRIPT_DIR or its immediate subfolders"
+  exit 1
+fi
+
+generate_master_headers
+
+echo
+echo "Generated bank headers:"
+for ((i = 1; i <= ${#BANK_TAGS[@]}; ++i)); do
+  echo "  - ${BANK_NAMES[i]} -> ${BANK_HEADERS[i]}"
+done
+echo
+echo "Generated master headers:"
+echo "  - banks.h"
+echo "  - samples.h"
+echo
+echo "Done."
