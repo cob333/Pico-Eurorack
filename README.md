@@ -4,7 +4,7 @@
 
 Arduino sketches for `2HPico` and `2HPico DSP` Eurorack modules; source code lives in `Sketches/` and prebuilt `uf2` firmware lives in `Build/`.
 
-This is an alternative set of sketches for the 2HPico and 2HPico DSP modules. See the original sketches at: 
+This is an alternative set of sketches for the 2HPico and 2HPico DSP modules by rich hesslip. See the original sketches at: 
 https://github.com/rheslip/2HPico-DSP-Sketches; 
 https://github.com/rheslip/2HPico-Sketches;
 
@@ -49,3 +49,10 @@ Unified file structure for both Pico and PicoFX sketches;
 ## Test
 1. Button: a simple hardware test that cycles the front-panel RGB LED color each time the button is pressed;
 2. Calibration: a DAC calibration helper that outputs fixed reference voltages on both CV outputs for tuning Pico;
+
+## Credits
+- Rich Hesslip for the original 2HPico and 2HPico DSP libraries and sketches;
+- Mutable Instruments for the original modules that inspired many of these sketches;
+- The open-source Arduino and TinyUSB communities for the tools that make this possible;
+- SYNSO for the DRUMS sketch;
+- You for checking this out and supporting open-source Eurorack development~
