@@ -1,6 +1,6 @@
 # Pico-Eurorack
 
-<img src="./images/Pico_Icon.jpg" alt="Pico_Icon" width="400"/>
+![Pico_Icon](./images/Pico_Icon.jpg)
 
 Arduino sketches for `2HPico` and `2HPico DSP` Eurorack modules; source code lives in `Sketches/` and prebuilt `uf2` firmware lives in `Build/`.
 
@@ -15,7 +15,8 @@ easy-to-use calibration sketches;
 Unified file structure for both Pico and PicoFX sketches;
 
 ## Pico
-<img src="./images/Pico.jpg" alt="Pico_Icon" width="400"/>
+
+![Pico](./images/Pico.jpg)
 
 1. 16Step_Sequencer: a 16-step CV/Gate sequencer with per-step ratchets, scale quantization, clock division, length, and overall pitch;
 2. Branches: a Bernoulli gate inspired by "Mutable Instruments Branches", routes one trigger input to two mutually exclusive outputs with probability；
@@ -34,7 +35,8 @@ Unified file structure for both Pico and PicoFX sketches;
 15. TripleOSC: a compact three-oscillator voice with shared waveform selection, independent tuning, FM input, and per-oscillator mute/calibration support;
 
 ## PicoFX
-<img src="./images/PicoFX.jpg" alt="Pico_Icon" width="400"/>
+
+![PicoFX](./images/PicoFX.jpg)
 
 1. Chorus: a stereo chorus effect with delay, feedback, LFO rate/depth, wet/dry mix, and output level control;
 2. Delay: a delay effect with feedback, wet/dry mix, output level, and either free delay time or external-clock sync plus ping-pong mode;

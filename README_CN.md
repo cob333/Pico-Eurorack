@@ -1,5 +1,5 @@
 # Pico-Eurorack
-<img src="./images/Pico_Icon.jpg" alt="Pico_Icon" width="400"/>
+![Pico_Icon](./images/Pico_Icon.jpg)
 
 这是一个面向 `2HPico` 和 `2HPico DSP` Eurorack 模块的脚本仓库，源码位于 `Sketches/`，预编译好的 `uf2` 固件位于 `Build/`。
 
@@ -14,7 +14,8 @@ https://github.com/rheslip/2HPico-Sketches;
 为 Pico 与 PicoFX sketch 提供统一的文件结构；
 
 ## Pico
-<img src="./images/Pico.jpg" alt="Pico_Icon" width="400"/>
+
+![Pico](./images/Pico.jpg)
 
 1. 16Step_Sequencer: 一个 16 步 CV/Gate 音序器，支持单步重复、音阶量化、时钟分频、序列长度和整体音高控制；
 2. Branches: 一个受 "Mutable Instruments Branches" 启发的伯努利门，将一路 trigger 按概率分配到两个互斥输出；
@@ -33,7 +34,8 @@ https://github.com/rheslip/2HPico-Sketches;
 15. TripleOSC: 一个紧凑的三振荡器音源，提供共享波形选择、独立调谐、FM 输入以及每个振荡器的静音/校准支持；
 
 ## PicoFX
-<img src="./images/PicoFX.jpg" alt="Pico_Icon" width="400"/>
+
+![PicoFX](./images/PicoFX.jpg)
 
 1. Chorus: 一个立体声 chorus 效果器，支持延迟、反馈、LFO 速率/深度、干湿比和输出电平控制；
 2. Delay: 一个 delay 效果器，支持反馈、干湿比、输出电平，以及自由延迟时间或外部时钟同步加 ping-pong 模式；
