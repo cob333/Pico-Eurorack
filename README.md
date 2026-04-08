@@ -45,8 +45,9 @@ Unified file structure for both Pico and PicoFX sketches;
 5. Reverb: a stereo reverb with controllable decay time, low-pass damping, wet/dry mix, and output level;
 6. Granular: a granular processor that chops incoming audio into grains with adjustable size, density, pitch, and wet/dry mix;
 7. Ladderfilter: a Moog ladder low-pass filter effect with resonance, base cutoff, 1V/Oct cutoff CV scaling, and output level control;
-8. Panner: a stereo spreader/autopanner that moves mono input across the stereo field with adjustable width, rate, LFO shape, and output level;
-9. Sidechain: a trigger-ducking sidechain effect with adjustable attack, decay, curve, and output level;
+8. Bitcrush: a mono bitcrusher with 1-bit to 16-bit resolution control, 1x to 20x downsampling, CV-controlled wet/dry mix, and output level;
+9. Panner: a stereo spreader/autopanner that moves mono input across the stereo field with adjustable width, rate, LFO shape, and output level;
+10. Sidechain: a trigger-ducking sidechain effect with adjustable attack, decay, curve, and output level;
 
 ## Test
 1. Button: a simple hardware test that cycles the front-panel RGB LED color each time the button is pressed;

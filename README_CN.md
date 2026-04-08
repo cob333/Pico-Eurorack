@@ -44,8 +44,9 @@ https://github.com/rheslip/2HPico-Sketches;
 5. Reverb: 一个立体声 reverb 效果器，支持混响时间、低通阻尼、干湿比和输出电平控制；
 6. Granular: 一个颗粒处理器，可将输入音频切成 grains，并调节颗粒大小、密度、音高和干湿比；
 7. Ladderfilter: 一个 Moog ladder low-pass filter 效果器，支持共振、基础截止频率、1V/Oct 截止频率 CV 缩放和输出电平控制；
-8. Panner: 一个立体声扩展/自动声像器，可将单声道输入在立体声声场中移动，并调节宽度、速率、LFO 形状和输出电平；
-9. Sidechain: 一个 trigger-ducking sidechain 效果器，支持 attack、decay、曲线和输出电平调节；
+8. Bitcrush: 一个单声道 bitcrusher 效果器，支持 1Bit 到 16Bit 分辨率、1x 到 20x 降采样、CV 控制干湿比以及输出电平；
+9. Panner: 一个立体声扩展/自动声像器，可将单声道输入在立体声声场中移动，并调节宽度、速率、LFO 形状和输出电平；
+10. Sidechain: 一个 trigger-ducking sidechain 效果器，支持 attack、decay、曲线和输出电平调节；
 
 ## Test
 1. Button: 一个简单的硬件测试程序，每次按下按钮都会切换前面板 RGB LED 的颜色；
