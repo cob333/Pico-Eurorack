@@ -48,6 +48,8 @@ Unified file structure for both Pico and PicoFX sketches;
 8. Bitcrush: a mono bitcrusher with 1-bit to 16-bit resolution control, 1x to 20x downsampling, CV-controlled wet/dry mix, and output level;
 9. Panner: a stereo spreader/autopanner that moves mono input across the stereo field with adjustable width, rate, LFO shape, and output level;
 10. Sidechain: a trigger-ducking sidechain effect with adjustable attack, decay, curve, and output level;
+11. Spectral Smash: a spectral effect that captures a short-time spectrum and keeps warping, blurring, smearing, and remixing the frozen frame into torn evolving textures;
+12. BeatBreaker: a clock-sliced beat breaker that captures recent beat buffers and, on each beat, can probabilistically replay, reverse, and retrigger them in 2x to 8x subdivisions;
 
 ## Test
 1. Button: a simple hardware test that cycles the front-panel RGB LED color each time the button is pressed;

@@ -47,6 +47,8 @@ https://github.com/rheslip/2HPico-Sketches;
 8. Bitcrush: 一个单声道 bitcrusher 效果器，支持 1Bit 到 16Bit 分辨率、1x 到 20x 降采样、CV 控制干湿比以及输出电平；
 9. Panner: 一个立体声扩展/自动声像器，可将单声道输入在立体声声场中移动，并调节宽度、速率、LFO 形状和输出电平；
 10. Sidechain: 一个 trigger-ducking sidechain 效果器，支持 attack、decay、曲线和输出电平调节；
+11. Spectral Smash: 一个频谱撕裂效果器，可抓取当前短窗频谱并继续做 warp、blur、time smear 与干湿比控制，适合冻结后撕裂、拉伸和漂移纹理；
+12. BeatBreaker: 一个按外部时钟切片并重组输入音频的 beat slicer，可按概率从最近几拍中抽取片段、倒放，并在单拍内做 2 到 8 次重复触发；
 
 ## Test
 1. Button: 一个简单的硬件测试程序，每次按下按钮都会切换前面板 RGB LED 的颜色；
