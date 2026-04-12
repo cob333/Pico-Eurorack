@@ -24,7 +24,7 @@ https://github.com/rheslip/2HPico-Sketches;
 5. DejaVu: 一个带 "DejaVu" 记忆控制的半随机音序器，捕获并重新回放音符/门序列，在循环与随机之间取变化；
 6. DualClock: 一个双路时钟发生器/分频器，支持tap tempo、摇摆、随机时序和联动时钟比率；
 7. Grids_Sampler: 一个将 "Mutable Instruments Grids" 节奏生成与四通道采样播放结合起来的采样鼓机；
-8. Modal: 一个受 "Mutable Instruments Rings" 启发的 modal resonator，通过 trigger 和 pitch CV 激励共振结构；
+8. Rings: 一个基于 "Mutable Instruments Rings" 的共振器音源，提供 trigger 与 pitch CV 输入，以及最高4复音的6个共振模型；
 9. Modulation: 一个结合 ADSR 与 LFO 的调制源，可在包络模式与多波形可同步 LFO 模式之间切换；
 10. Moogvoice: 一个单音减法合成器音源，包含三个振荡器、Moog 风格 ladder filter、ADSR 包络和 LFO 调制；
 11. Motion_Recorder: 一个双通道 CV 动作录音器，可循环记录旋钮运动、与外部时钟同步，并支持排队重录；

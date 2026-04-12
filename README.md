@@ -25,7 +25,7 @@ Unified file structure for both Pico and PicoFX sketches;
 5. DejaVu: a semi-random sequencer with a "DejaVu" memory control that captures and re-injects note/gate patterns to balance repetition and variation;
 6. DualClock: a dual clock generator/divider with tap tempo, swing, random timing, and linked clock ratios;
 7. Grids_Sampler: a drum machine that combines "Mutable Instruments Grids" rhythm generation with four-channel sample playback;
-8. Modal: a modal resonator inspired by "Mutable Instruments Rings" that excites resonant structures from trigger and pitch CV input;
+8. Rings: a resonator voice based on "Mutable Instruments Rings" with trigger and pitch CV input, plus 6 models for 4-polyphony at maximum;
 9. Modulation: a combined ADSR and LFO modulation source that switches between envelope mode and multi-waveform syncable LFO mode;
 10. Moogvoice: a monophonic subtractive synth voice with three oscillators, a Moog-style ladder filter, ADSR envelope, and LFO modulation;
 11. Motion_Recorder: a dual-channel CV motion recorder that loops knob movements, synchronizes to an external clock, and supports queued re-recording;
