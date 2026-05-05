@@ -1,0 +1,900 @@
+<!--
+  Copyright 2026 Wenhao Yang
+
+  Author: Wenhao Yang
+  Contributor: Wenhao Yang
+
+  Pico-Eurorack Bootloader Apps client mockup.
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pico-Eurorack Client</title>
+  <style>
+    @font-face {
+      font-family: "Jost";
+      src: url("./fonts/Jost-400-Book.ttf") format("truetype");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "Jost";
+      src: url("./fonts/Jost-500-Medium.ttf") format("truetype");
+      font-weight: 500;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "Jost";
+      src: url("./fonts/Jost-700-Bold.ttf") format("truetype");
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --surface-2: #eceff3;
+      --ink: #15181c;
+      --muted: #6c737d;
+      --line: #d8dde4;
+      --accent: #e1b43f;
+      --accent-2: #0aa5a8;
+      --danger: #ec3d4f;
+      --radius: 8px;
+      --shadow: 0 18px 50px rgba(20, 24, 28, 0.09);
+      font-family: "Jost", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--bg);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      min-height: 100vh;
+    }
+
+    .start {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+    }
+
+    .start-shell {
+      width: min(1040px, 100%);
+      display: grid;
+      grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.1fr);
+      gap: 28px;
+      align-items: center;
+    }
+
+    .intro h1 {
+      margin: 0 0 14px;
+      font-size: clamp(34px, 5vw, 64px);
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .intro p {
+      margin: 0;
+      max-width: 460px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 16px;
+    }
+
+    .device-choices {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .device-choice {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius);
+      min-height: 360px;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      padding: 0;
+      text-align: left;
+    }
+
+    .device-choice img {
+      width: min(126px, 58%);
+      height: 290px;
+      object-fit: contain;
+      object-position: center top;
+      background: #fdfdfc;
+      padding: 14px 0 0;
+      justify-self: center;
+    }
+
+    .device-choice strong {
+      display: block;
+      padding: 16px;
+      font-size: 22px;
+      border-top: 1px solid var(--line);
+    }
+
+    .workspace {
+      min-height: 100vh;
+      display: none;
+      grid-template-rows: 76px 1fr;
+    }
+
+    .workspace.active {
+      display: grid;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 96px;
+      height: 72px;
+      border-radius: 8px;
+      object-fit: contain;
+      background: #fff;
+      border: 0;
+      padding: 0;
+      flex: none;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 17px;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .device-switch,
+    .page-tabs,
+    .slot-tabs {
+      display: flex;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .device-switch button,
+    .page-tabs button,
+    .slot-tabs button {
+      border: 0;
+      background: transparent;
+      min-height: 36px;
+      padding: 0 12px;
+      color: var(--muted);
+    }
+
+    .device-switch button.active,
+    .page-tabs button.active,
+    .slot-tabs button.active {
+      background: var(--ink);
+      color: #fff;
+    }
+
+    .ghost {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius);
+      min-height: 36px;
+      padding: 0 12px;
+      color: var(--ink);
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: minmax(340px, 1fr) minmax(360px, 1.05fr) minmax(170px, 220px);
+      gap: 14px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .main > .panel:first-child {
+      grid-column: 1;
+    }
+
+    .details {
+      grid-column: 2;
+    }
+    
+    .preview {
+      grid-column: 3;
+      min-height: auto;
+      display: grid;
+      place-items: start center;
+      background: #fff;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      padding: 8px;
+      max-height: 1020px;
+      overflow: hidden;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 28px rgba(20, 24, 28, 0.05);
+    }
+
+    .panel-head {
+      padding: 14px 14px 12px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .panel-body {
+      padding: 14px;
+    }
+
+    .catalog-search {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      min-height: 38px;
+      padding: 0 10px;
+      margin-bottom: 12px;
+      background: #fafbfc;
+    }
+
+    .app-list {
+      display: grid;
+      gap: 8px;
+      max-height: 360px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .app-card {
+      display: grid;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 10px;
+      text-align: left;
+    }
+
+    .app-card.active {
+      border-color: var(--ink);
+      box-shadow: inset 3px 0 0 var(--ink);
+    }
+
+    .app-card strong {
+      font-size: 14px;
+    }
+
+    .app-card span,
+    .slot-meta,
+    .hint,
+    .field-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .slots {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .slot-row {
+      display: grid;
+      grid-template-columns: 44px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fafbfc;
+    }
+
+    .slot-index {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: var(--ink);
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .slot-row button {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: var(--radius);
+      min-height: 32px;
+      padding: 0 8px;
+    }
+
+    .module-wrap {
+      position: relative;
+      display: block;
+    }
+
+    .module {
+      position: relative;
+      width: min(124px, 18vw);
+      min-width: 84px;
+      justify-self: center;
+    }
+
+    .module img {
+      width: 100%;
+      max-height: 800px;
+      display: block;
+      object-fit: contain;
+      object-position: top center;
+      filter: drop-shadow(0 20px 32px rgba(0, 0, 0, 0.12));
+    }
+
+    .selected-title {
+      display: grid;
+      gap: 6px;
+    }
+
+    .selected-title h2 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.1;
+      font-weight: 700;
+    }
+
+    .selected-title p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .status-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      color: var(--muted);
+      background: #fafbfc;
+    }
+
+    .chip.live {
+      color: #0d6b63;
+      border-color: rgba(10, 165, 168, 0.35);
+      background: rgba(10, 165, 168, 0.08);
+    }
+
+    .function-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .function-row {
+      display: grid;
+      grid-template-columns: 82px 1fr;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fafbfc;
+    }
+
+    .function-row b {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .function-row span {
+      color: #30353b;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .build-box {
+      margin-top: 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .build-box code {
+      display: block;
+      white-space: pre-wrap;
+      background: #11161c;
+      color: #e8edf3;
+      padding: 12px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 1120px) {
+      .main {
+        grid-template-columns: minmax(280px, 1fr) minmax(140px, 180px);
+      }
+
+      .details {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .start-shell,
+      .device-choices,
+      .main,
+      .module-wrap {
+        width: 100%;
+      }
+
+      .topbar {
+        height: auto;
+        min-height: 64px;
+        align-items: flex-start;
+        padding: 12px;
+        flex-direction: column;
+      }
+
+      .top-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .module {
+        width: min(124px, 34vw);
+        margin: 0 auto;
+      }
+
+      .preview {
+        min-height: auto;
+        max-height: 360px;
+      }
+
+      .module img {
+        max-height: 340px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="workspace active" id="workspace">
+      <header class="topbar">
+        <div class="brand">
+          <img class="mark" src="../images/Pico_Icon.jpg" alt="" aria-hidden="true">
+          <div>
+            <h1>Pico Eurorack Interface</h1>
+            <span id="deviceSubtitle">Pico</span>
+          </div>
+        </div>
+        <div class="top-actions">
+          <div class="device-switch" aria-label="设备切换">
+            <button type="button" data-device="pico">Pico</button>
+            <button type="button" data-device="picofx">PicoFX</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main">
+        <aside class="panel">
+          <div class="panel-head">
+            <h2>App Catalog</h2>
+            <span class="chip" id="catalogCount"></span>
+          </div>
+          <div class="panel-body">
+            <input class="catalog-search" id="search" type="search" placeholder="搜索 App / 功能">
+            <div class="app-list" id="appList"></div>
+
+            <div class="build-box">
+              <div class="panel-head" style="padding:0;border:0">
+                <h2>Slots</h2>
+                <div class="slot-tabs" id="slotTabs"></div>
+              </div>
+              <div class="slots" id="slots"></div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="preview">
+          <div class="module-wrap">
+            <div class="module">
+              <img id="panelImage" src="../images/Pico_2D.png" alt="Pico panel preview">
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel details">
+          <div class="panel-head">
+            <h2>Function Map</h2>
+            <span class="chip live" id="slotBadge">Slot 1</span>
+          </div>
+          <div class="panel-body">
+            <div class="selected-title">
+              <h2 id="selectedName">TripleOSC</h2>
+              <p id="selectedDescription"></p>
+            </div>
+            <div class="status-line" id="statusLine"></div>
+            <div class="page-tabs" id="pageTabs" style="margin-top:14px"></div>
+            <div class="function-list" id="functionList"></div>
+          </div>
+        </aside>
+      </main>
+    </section>
+  </div>
+
+  <script>
+    const DATA = {
+      pico: {
+        label: "Pico",
+        image: "../images/Pico_2D.png",
+        apps: [
+          app("TripleOSC", "三振荡器音源", "Pico", [
+            page("RED", ["Waveform: Sine / Triangle / Saw / Ramp", "Oscillator 1 tuning", "Oscillator 2 tuning", "Oscillator 3 tuning"])
+          ], io("Gate / pitch workflow", "Trigger input", "Not used", "Audio out", "Page button selects parameter page")),
+          app("Plaits", "Mutable Plaits macro oscillator", "Pico", [
+            page("Model", ["Pitch +/- 12 semitones", "Harmonics", "Timbre", "Morph"]),
+            page("Hold", ["Octave -3 to +5", "Main / Aux output mix", "LPG response", "LPG time / decay"])
+          ], io("V/Oct pitch input", "Trigger input", "Plaits aux blend source", "Audio out", "Click model, double click bank, hold page 2")),
+          app("PlaitsFM", "Six-op FM voice", "Pico", [
+            page("Bank", ["Pitch +/- 12 semitones", "Patch number", "Timbre / operator feedback", "Morph / decay character"]),
+            page("Hold", ["Octave -3 to +5", "Unassigned", "Unassigned", "Unassigned"])
+          ], io("V/Oct pitch input", "Trigger input", "Not used", "Audio out", "Click patch bank, hold page 2")),
+          app("Rings", "Modal resonator voice", "Pico", [
+            page("RED", ["Position", "Structure", "Brightness", "Frequency"]),
+            page("VIOLET", ["Position", "Slide", "Polyphony", "Resonator type"])
+          ], io("Pitch CV input", "Trigger input", "Not used", "Audio out", "Short click page, hold 3s saves settings")),
+          app("Braids", "Braids macro oscillator", "Pico", [
+            page("RED", ["Braids model", "Timbre", "Color", "Frequency"]),
+            page("GREEN", ["Attack", "Decay", "Sustain", "Release"])
+          ], io("CV input", "Gate / trigger input", "Not used", "Audio output", "Press to move between pages")),
+          app("Moogvoice", "Three oscillator subtractive voice", "Pico", [
+            page("RED", ["Oscillator 1 tuning", "Oscillator 2 tuning", "Oscillator 3 tuning", "Waveform"]),
+            page("ORANGE", ["Filter frequency", "Filter resonance", "Envelope to filter depth", "LFO to filter depth"]),
+            page("GREEN", ["Attack", "Decay", "Sustain", "Release"]),
+            page("BLUE", ["LFO frequency", "LFO waveform", "Unassigned", "Unassigned"])
+          ], io("Pitch CV input", "Gate / trigger input", "Not used", "Audio output", "Button changes pages")),
+          app("DRUMS", "One-knob drum voice set", "Pico", [
+            page("Model", ["Output level", "Tone", "Decay", "Frequency"])
+          ], io("Decay CV input", "Trigger input", "Not used", "Audio output", "Button selects drum model")),
+          app("Branches", "Bernoulli gate router", "Pico", [
+            page("Primary", ["Probability", "Output level 0-5V", "Unused", "Unused"])
+          ], io("Trigger input", "Trigger input", "Red output", "Green output", "Short press mode, long press output type")),
+          app("DualClock", "Dual clock generator", "Pico", [
+            page("CLOCK", ["Clock 1 tempo / divider", "Clock 2 tempo / ratio", "Clock 1 swing", "Clock 2 random timing"])
+          ], io("External clock input", "Clock input", "Clock 1 output", "Clock 2 output", "Tap tempo, hold 3s sync mode")),
+          app("16Step Sequencer", "Pitch and gate sequencer", "Pico", [
+            page("Steps 1-4", ["Step 1 pitch", "Step 2 pitch", "Step 3 pitch", "Step 4 pitch"]),
+            page("Steps 5-8", ["Step 5 pitch", "Step 6 pitch", "Step 7 pitch", "Step 8 pitch"]),
+            page("Steps 9-12", ["Step 9 pitch", "Step 10 pitch", "Step 11 pitch", "Step 12 pitch"]),
+            page("Steps 13-16", ["Step 13 pitch", "Step 14 pitch", "Step 15 pitch", "Step 16 pitch"]),
+            page("Global", ["Scale", "Clock divider", "Steps 1-16", "Overall pitch"])
+          ], io("Clock input", "Clock input", "Gate output", "Pitch CV output", "Short press pages, hold ratchet edit")),
+          app("Motion Recorder", "Two-channel CV motion recorder", "Pico", [
+            page("Motion", ["Manual CV motion ch2", "Manual CV motion ch1", "Sequence length", "Motion smoothing"])
+          ], io("Clock input", "Clock input", "CV out 1", "CV out 2", "Press to start a new recording")),
+          app("Grids Sampler", "Four-channel Grids sample sequencer", "Pico", [
+            page("RED", ["Drum Map X", "Drum Map Y", "Chaos", "Random sample chance ch4"]),
+            page("GREEN", ["Channel 1 fill", "Channel 2 fill", "Channel 3 fill", "Channel 4 fill"]),
+            page("AQUA", ["Channel 1 sample", "Channel 2 sample", "Channel 3 sample", "Channel 4 sample"])
+          ], io("Reset input", "Clock input", "Not used", "Audio out", "Button changes page")),
+          app("DejaVu", "Generative CV sequencer", "Pico", [
+            page("RED", ["Gate density", "Probability of changing gates", "Note range", "DejaVu repeat memory"]),
+            page("GREEN", ["Unassigned", "Unassigned", "Unassigned", "CV offset"])
+          ], io("Clock input", "Clock input", "Gate output", "CV output", "Click to advance page")),
+          app("Modulation", "ADSR / LFO modulation source", "Pico", [
+            page("ADSR", ["Attack", "Decay", "Sustain", "Release"]),
+            page("LFO", ["Rise", "Fall", "Waveform", "Output level"])
+          ], io("Gate or sync input", "Gate / sync", "CV output", "CV output", "Short press toggles ADSR/LFO")),
+          app("Oneshot Sampler", "One-shot sample player", "Pico", [
+            page("GREEN", ["Level", "Tone / lowpass brightness", "CV input target", "Pitch"]),
+            page("AQUA", ["Start point", "End point", "Attack", "Decay / hold"]),
+            page("BLUE", ["Bank selection", "Sample selection", "Sample randomness", "Reverse"])
+          ], io("CV input target selectable", "Trigger input", "Not used", "Audio out", "Button switches pages"))
+        ]
+      },
+      picofx: {
+        label: "PicoFX",
+        image: "../images/PicoFX_2D.png",
+        apps: [
+          app("DaisySP Delay", "Mono / ping-pong delay", "PicoFX", [
+            page("RED", ["Delay time", "Feedback", "Wet / dry blend", "Output level"])
+          ], io("Audio input", "Mono clock input or right audio out", "Right out / clock role", "Left / mono out", "Button toggles mono/ping-pong")),
+          app("DaisySP Reverb", "Stereo reverb", "PicoFX", [
+            page("RED", ["Reverb time", "Filter cutoff", "Wet / dry blend", "Output level"])
+          ], io("Audio input", "Audio / CV input", "Right audio out", "Left audio out", "Single page")),
+          app("DaisySP Chorus", "Chorus modulation", "PicoFX", [
+            page("RED", ["Delay", "Feedback", "LFO frequency", "LFO depth"]),
+            page("GREEN", ["Wet / dry mix", "Output level", "Unassigned", "Unassigned"])
+          ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Button changes page")),
+          app("DaisySP Flanger", "Stereo flanger", "PicoFX", [
+            page("RED", ["Delay", "Feedback", "LFO frequency", "LFO depth"]),
+            page("GREEN", ["Wet / dry mix", "Output level", "Stereo width", "LFO waveform"])
+          ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Button changes page")),
+          app("DaisySP Pitchshifter", "Delay-line pitch shifter", "PicoFX", [
+            page("RED", ["Delay size", "Transposition", "Random modulation", "Wet / dry mix"])
+          ], io("Audio input", "Audio input / CV", "Right audio out", "Left audio out", "Single page")),
+          app("Ladderfilter", "CV-scaled ladder filter", "PicoFX", [
+            page("RED", ["Filter resonance", "Initial frequency", "CV scale 0-1.5x", "Output level"])
+          ], io("Frequency CV input", "Audio input", "Not used", "Audio out", "Single page")),
+          app("Bitcrush", "Resolution and downsampling effect", "PicoFX", [
+            page("GREEN", ["Resolution 1-16 bit", "Downsampling 1x-20x", "Mix", "Output level"])
+          ], io("Mix CV input", "Audio input", "Not used", "Audio out", "Button switches page")),
+          app("Granular", "Granular texture processor", "PicoFX", [
+            page("RED", ["Grain size", "Grain density", "Grain pitch", "Wet / dry mix"])
+          ], io("Audio input", "Audio input / CV", "Right audio out", "Left audio out", "Single page")),
+          app("BeatBreaker", "Clock-sliced beat repeater", "PicoFX", [
+            page("RED", ["Break probability", "Reverse probability", "Repeat macro", "Output level"])
+          ], io("Clock input", "Audio input", "Not used", "Audio out", "Button clears beat history")),
+          app("Sidechain", "Trigger ducking processor", "PicoFX", [
+            page("RED", ["Attack", "Decay", "Knee curve", "Output level"])
+          ], io("Trigger input", "Audio input", "Not used", "Audio out", "Trigger input ducks audio")),
+          app("Panner", "Stereo spreader / panner", "PicoFX", [
+            page("SPREAD", ["Width", "Rate", "Delay / LFO shape", "Output level"])
+          ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Single page")),
+          app("Spectral Smash", "Freeze / tear spectral processor", "PicoFX", [
+            page("SPECTRAL", ["Warp / tear", "Blur", "Time smear", "Wet / dry mix"])
+          ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Short press freeze, hold recaptures"))
+        ]
+      }
+    };
+
+    function app(name, description, family, pages, hardware) {
+      return { name, description, family, pages, hardware };
+    }
+
+    function page(name, params) {
+      return { name, params };
+    }
+
+    function io(cv, input, aux, out, button) {
+      return { cv, input, aux, out, button };
+    }
+
+    const state = {
+      device: "pico",
+      selectedApp: 0,
+      selectedPage: 0,
+      selectedSlot: 0,
+      slots: ["TripleOSC", "Branches", "", ""]
+    };
+
+    const appList = document.getElementById("appList");
+    const search = document.getElementById("search");
+    const pageTabs = document.getElementById("pageTabs");
+    const slotTabs = document.getElementById("slotTabs");
+    const slots = document.getElementById("slots");
+    const functionList = document.getElementById("functionList");
+
+    document.querySelectorAll("[data-device]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.device = button.dataset.device;
+        state.selectedApp = 0;
+        state.selectedPage = 0;
+        resetDeviceDefaults();
+        render();
+      });
+    });
+
+    search.addEventListener("input", () => renderAppList());
+
+    function resetDeviceDefaults() {
+      state.selectedSlot = 0;
+      state.slots = state.device === "pico"
+        ? ["TripleOSC", "Branches", "", ""]
+        : ["DaisySP Delay", "Bitcrush", "", ""];
+    }
+
+    function currentDevice() {
+      return DATA[state.device];
+    }
+
+    function currentApp() {
+      return currentDevice().apps[state.selectedApp];
+    }
+
+    function currentPage() {
+      const appData = currentApp();
+      return appData.pages[Math.min(state.selectedPage, appData.pages.length - 1)];
+    }
+
+    function render() {
+      const device = currentDevice();
+      document.getElementById("panelImage").src = device.image;
+      document.getElementById("panelImage").alt = `${device.label} panel preview`;
+      document.getElementById("deviceSubtitle").textContent = device.label;
+      document.querySelectorAll("[data-device]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.device === state.device);
+      });
+      renderAppList();
+      renderSlots();
+      renderDetails();
+    }
+
+    function renderAppList() {
+      const needle = search.value.trim().toLowerCase();
+      const apps = currentDevice().apps;
+      document.getElementById("catalogCount").textContent = `${apps.length} apps`;
+      appList.innerHTML = "";
+      apps.forEach((item, index) => {
+        const haystack = `${item.name} ${item.description} ${item.pages.map((p) => p.params.join(" ")).join(" ")}`.toLowerCase();
+        if (needle && !haystack.includes(needle)) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `app-card${index === state.selectedApp ? " active" : ""}`;
+        button.innerHTML = `<strong>${item.name}</strong><span>${item.description}</span><span>${item.family}</span>`;
+        button.addEventListener("click", () => {
+          state.selectedApp = index;
+          state.selectedPage = 0;
+          renderDetails();
+          renderAppList();
+        });
+        appList.appendChild(button);
+      });
+    }
+
+    function renderSlots() {
+      slotTabs.innerHTML = "";
+      state.slots.forEach((_name, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = String(index + 1);
+        button.classList.toggle("active", index === state.selectedSlot);
+        button.addEventListener("click", () => {
+          state.selectedSlot = index;
+          renderSlots();
+          renderDetails();
+        });
+        slotTabs.appendChild(button);
+      });
+
+      slots.innerHTML = "";
+      state.slots.forEach((name, index) => {
+        const row = document.createElement("div");
+        row.className = "slot-row";
+        row.innerHTML = `
+          <div class="slot-index">${index + 1}</div>
+          <div>
+            <strong>${name || "空槽位"}</strong>
+            <div class="slot-meta">${index === state.selectedSlot ? "Active slot" : "App slot"} · 512KB</div>
+          </div>
+          <button type="button">${name ? "替换" : "添加"}</button>
+        `;
+        row.querySelector("button").addEventListener("click", () => {
+          state.selectedSlot = index;
+          state.slots[index] = currentApp().name;
+          renderSlots();
+          renderDetails();
+        });
+        slots.appendChild(row);
+      });
+    }
+
+    function renderDetails() {
+      const appData = currentApp();
+      const pageData = currentPage();
+      document.getElementById("selectedName").textContent = appData.name;
+      document.getElementById("selectedDescription").textContent = appData.description;
+      document.getElementById("slotBadge").textContent = `Slot ${state.selectedSlot + 1}`;
+
+      const statusLine = document.getElementById("statusLine");
+      statusLine.innerHTML = `
+        <span class="chip">${appData.family}</span>
+        <span class="chip">${pageData.name}</span>
+      `;
+
+      pageTabs.innerHTML = "";
+      appData.pages.forEach((pageItem, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = pageItem.name;
+        button.classList.toggle("active", index === state.selectedPage);
+        button.addEventListener("click", () => {
+          state.selectedPage = index;
+          renderDetails();
+        });
+        pageTabs.appendChild(button);
+      });
+
+      const rows = [
+        ["IN", appData.hardware.input],
+        ["PAGE", appData.hardware.button],
+        ["PARAM 1", pageData.params[0]],
+        ["PARAM 2", pageData.params[1]],
+        ["PARAM 3", pageData.params[2]],
+        ["PARAM 4", pageData.params[3]],
+        ["AUX", appData.hardware.aux],
+        ["OUT", appData.hardware.out],
+        ["CV", appData.hardware.cv]
+      ];
+      functionList.innerHTML = rows.map(([label, value]) => `
+        <div class="function-row"><b>${label}</b><span>${value || "未使用 / 待确认"}</span></div>
+      `).join("");
+    }
+
+    render();
+  </script>
+</body>
+</html>

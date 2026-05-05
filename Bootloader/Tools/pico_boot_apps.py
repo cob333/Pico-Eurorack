@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+# Copyright 2026 Wenhao Yang
+#
+# Author: Wenhao Yang
+# Contributor: Wenhao Yang
+#
+# Build slot-linked apps and package them with the Pico-Eurorack selector.
+
+import argparse
+import os
+import struct
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+
+UF2_MAGIC_START0 = 0x0A324655
+UF2_MAGIC_START1 = 0x9E5D5157
+UF2_MAGIC_END = 0x0AB16F30
+UF2_FLAG_FAMILY_ID = 0x00002000
+XIP_BASE = 0x10000000
+
+PICO_SELECTOR_MAGIC = 0x50494253
+PICO_SELECTOR_VERSION = 2
+PICO_SELECTOR_MAX_APPS = 8
+PICO_SELECTOR_BOOT_BYTES = 256 * 1024
+PICO_SELECTOR_CONFIG_A_OFFSET = PICO_SELECTOR_BOOT_BYTES - (2 * 4096)
+PICO_SELECTOR_CONFIG_B_OFFSET = PICO_SELECTOR_BOOT_BYTES - 4096
+PICO_SELECTOR_FIRST_APP_OFFSET = PICO_SELECTOR_BOOT_BYTES
+PICO_SELECTOR_DEFAULT_SLOT_BYTES = 512 * 1024
+PICO_SELECTOR_ARDUINO_VECTOR_OFFSET = 0x3000
+PICO_SELECTOR_FLAG_VALID = 0x01
+PICO_SELECTOR_FLAG_RP2040 = 0x02
+PICO_SELECTOR_FLAG_RP2350 = 0x04
+PICO_SELECTOR_FLAG_PICOFX = 0x08
+FLASH_SECTOR_SIZE = 4096
+UF2_PAYLOAD_SIZE = 256
+CONFIG_RECORD_SIZE = 212
+
+
+@dataclass
+class Uf2Block:
+    flags: int
+    target: int
+    payload: bytes
+    family: int
+
+
+def int_arg(value: str) -> int:
+    return int(value, 0)
+
+
+def fnv1a32(data: bytes) -> int:
+    value = 2166136261
+    for byte in data:
+        value ^= byte
+        value = (value * 16777619) & 0xFFFFFFFF
+    return value
+
+
+def read_uf2(path: Path) -> list[Uf2Block]:
+    raw = path.read_bytes()
+    if len(raw) % 512:
+        raise ValueError(f"{path} is not a whole-block UF2 file")
+
+    blocks: list[Uf2Block] = []
+    for offset in range(0, len(raw), 512):
+        block = raw[offset : offset + 512]
+        start0, start1, flags, target, size, _block_no, _num_blocks, family = struct.unpack_from(
+            "<IIIIIIII", block, 0
+        )
+        end_magic = struct.unpack_from("<I", block, 508)[0]
+        if start0 != UF2_MAGIC_START0 or start1 != UF2_MAGIC_START1 or end_magic != UF2_MAGIC_END:
+            raise ValueError(f"{path} has an invalid UF2 block at {offset}")
+        if size > 476:
+            raise ValueError(f"{path} has an invalid UF2 payload size {size}")
+        blocks.append(Uf2Block(flags, target, block[32 : 32 + size], family))
+    return blocks
+
+
+def write_uf2(path: Path, blocks: Iterable[Uf2Block]) -> None:
+    materialized = list(blocks)
+    out = bytearray()
+    total = len(materialized)
+    for index, block in enumerate(materialized):
+        payload = block.payload
+        if len(payload) > 476:
+            raise ValueError("UF2 payload is too large")
+        record = bytearray(512)
+        struct.pack_into(
+            "<IIIIIIII",
+            record,
+            0,
+            UF2_MAGIC_START0,
+            UF2_MAGIC_START1,
+            block.flags,
+            block.target,
+            len(payload),
+            index,
+            total,
+            block.family,
+        )
+        record[32 : 32 + len(payload)] = payload
+        struct.pack_into("<I", record, 508, UF2_MAGIC_END)
+        out.extend(record)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(out)
+
+
+def family_from(blocks: list[Uf2Block]) -> tuple[int, int]:
+    for block in blocks:
+        if block.flags & UF2_FLAG_FAMILY_ID:
+            return block.flags, block.family
+    return 0, 0
+
+
+def flash_bytes(blocks: list[Uf2Block]) -> dict[int, int]:
+    data: dict[int, int] = {}
+    for block in blocks:
+        if block.target < XIP_BASE:
+            continue
+        for index, byte in enumerate(block.payload):
+            data[block.target + index] = byte
+    return data
+
+
+def read_u32(memory: dict[int, int], addr: int) -> int | None:
+    try:
+        return (
+            memory[addr]
+            | (memory[addr + 1] << 8)
+            | (memory[addr + 2] << 16)
+            | (memory[addr + 3] << 24)
+        )
+    except KeyError:
+        return None
+
+
+def validate_slot_app(
+    path: Path, blocks: list[Uf2Block], slot_offset: int, slot_size: int, vector_offset: int
+) -> None:
+    memory = flash_bytes(blocks)
+    slot_base = XIP_BASE + slot_offset
+    vector_addr = slot_base + vector_offset
+    stack = read_u32(memory, vector_addr)
+    reset = read_u32(memory, vector_addr + 4)
+    if stack is None or reset is None:
+        raise ValueError(f"{path} has no vector words at 0x{vector_addr:08x}")
+    if not (0x20000000 <= stack <= 0x20082000):
+        raise ValueError(f"{path} has an invalid stack pointer 0x{stack:08x}")
+    if not (slot_base <= reset < slot_base + slot_size) or not (reset & 1):
+        raise ValueError(
+            f"{path} is not linked for slot 0x{slot_offset:x}: reset vector is 0x{reset:08x}"
+        )
+
+
+def config_record(
+    app_count: int, active: int, slot_size: int, vector_offset: int, target_flag: int, sequence: int
+) -> bytes:
+    if not 0 <= active < app_count:
+        raise ValueError("active app index is out of range")
+    if app_count > PICO_SELECTOR_MAX_APPS:
+        raise ValueError(f"only {PICO_SELECTOR_MAX_APPS} app slots are supported")
+
+    record = bytearray(CONFIG_RECORD_SIZE)
+    struct.pack_into(
+        "<IHHIBBH",
+        record,
+        0,
+        PICO_SELECTOR_MAGIC,
+        PICO_SELECTOR_VERSION,
+        CONFIG_RECORD_SIZE,
+        sequence,
+        active,
+        app_count,
+        0,
+    )
+    struct.pack_into("<8f", record, 16, 580.6, 580.6, 5456.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    for index in range(PICO_SELECTOR_MAX_APPS):
+        flags = 0
+        app_id = 0
+        if index < app_count:
+            flags = PICO_SELECTOR_FLAG_VALID | target_flag
+            app_id = index + 1
+        struct.pack_into(
+            "<IIIII",
+            record,
+            48 + (index * 20),
+            PICO_SELECTOR_FIRST_APP_OFFSET + (index * slot_size),
+            slot_size,
+            flags,
+            app_id,
+            vector_offset,
+        )
+    crc = fnv1a32(record[:-4])
+    struct.pack_into("<I", record, CONFIG_RECORD_SIZE - 4, crc)
+    return bytes(record)
+
+
+def sector_blocks(flash_offset: int, record: bytes, flags: int, family: int) -> list[Uf2Block]:
+    sector = bytearray([0xFF] * FLASH_SECTOR_SIZE)
+    sector[: len(record)] = record
+    blocks = []
+    for pos in range(0, len(sector), UF2_PAYLOAD_SIZE):
+        blocks.append(
+            Uf2Block(
+                flags=flags,
+                target=XIP_BASE + flash_offset + pos,
+                payload=bytes(sector[pos : pos + UF2_PAYLOAD_SIZE]),
+                family=family,
+            )
+        )
+    return blocks
+
+
+def build_slot(args: argparse.Namespace) -> None:
+    script = Path(__file__).with_name("make_slot_memmap.py").resolve()
+    slot_offset = args.first_app_offset + (args.slot * args.slot_size)
+    flash_origin = XIP_BASE + slot_offset
+    recipe = (
+        f'"{sys.executable}" -I "{script}" '
+        f'--input "{{runtime.platform.path}}/lib/{{build.chip}}/memmap_default.ld" '
+        f'--out "{{build.path}}/memmap_default.ld" '
+        f"--flash-origin 0x{flash_origin:08x} "
+        f"--flash-length {args.slot_size} "
+        f'--eeprom-start "{{build.eeprom_start}}" '
+        f'--fs-start "{{build.fs_start}}" '
+        f'--fs-end "{{build.fs_end}}" '
+        f'--ram-length "{{build.ram_length}}" '
+        f'--psram-length "{{build.psram_length}}"'
+    )
+    cmd = [
+        "arduino-cli",
+        "compile",
+        "--fqbn",
+        args.fqbn,
+        "--build-path",
+        str(args.build_path),
+        "--build-property",
+        f"recipe.hooks.linking.prelink.1.pattern={recipe}",
+    ]
+    for library in args.library:
+        cmd.extend(["--libraries", str(library)])
+    cmd.append(str(args.sketch))
+    env = os.environ.copy()
+    toolchain = Path.home() / "Library/Arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-1aec55e/bin"
+    env["PATH"] = f"{toolchain}{os.pathsep}{env.get('PATH', '')}"
+    subprocess.run(cmd, check=True, env=env)
+
+
+def package(args: argparse.Namespace) -> None:
+    selector_blocks = read_uf2(args.selector)
+    flags, family = family_from(selector_blocks)
+    if not flags:
+        raise ValueError(f"{args.selector} does not contain a UF2 family id")
+
+    app_blocks: list[Uf2Block] = []
+    target_flag = PICO_SELECTOR_FLAG_RP2350 if args.target == "rp2350" else PICO_SELECTOR_FLAG_RP2040
+    for index, path in enumerate(args.app):
+        blocks = read_uf2(path)
+        slot_offset = args.first_app_offset + (index * args.slot_size)
+        validate_slot_app(path, blocks, slot_offset, args.slot_size, args.vector_offset)
+        slot_base = XIP_BASE + slot_offset
+        slot_end = slot_base + args.slot_size
+        app_blocks.extend(block for block in blocks if slot_base <= block.target < slot_end)
+
+    record_a = config_record(len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 1)
+    record_b = config_record(len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 2)
+    config_blocks = sector_blocks(PICO_SELECTOR_CONFIG_A_OFFSET, record_a, flags, family)
+    config_blocks.extend(sector_blocks(PICO_SELECTOR_CONFIG_B_OFFSET, record_b, flags, family))
+    write_uf2(args.output, [*selector_blocks, *app_blocks, *config_blocks])
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Pico-Eurorack Bootloader/Apps helper")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    slot = subparsers.add_parser("slot-build", help="compile an Arduino sketch for an app slot")
+    slot.add_argument("sketch", type=Path)
+    slot.add_argument("--slot", type=int, required=True)
+    slot.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
+    slot.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
+    slot.add_argument("--fqbn", required=True)
+    slot.add_argument("--build-path", type=Path, required=True)
+    slot.add_argument("--library", action="append", default=[])
+    slot.set_defaults(func=build_slot)
+
+    pack = subparsers.add_parser("package", help="combine selector and slot-linked app UF2 files")
+    pack.add_argument("--selector", type=Path, required=True)
+    pack.add_argument("--app", type=Path, action="append", required=True)
+    pack.add_argument("--output", type=Path, required=True)
+    pack.add_argument("--active", type=int, default=0)
+    pack.add_argument("--target", choices=("rp2040", "rp2350"), default="rp2350")
+    pack.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
+    pack.add_argument("--vector-offset", type=int_arg, default=PICO_SELECTOR_ARDUINO_VECTOR_OFFSET)
+    pack.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
+    pack.set_defaults(func=package)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

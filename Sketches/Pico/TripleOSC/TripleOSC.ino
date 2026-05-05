@@ -2,6 +2,7 @@
 // Copyright 2025 Rich Heslip
 //
 // Author: Rich Heslip 
+// Contributor: Wenhao Yang
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -52,7 +53,6 @@ Fourth pot - 3rd Oscillator tuning
 #include "2HPico.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
-#include <EEPROM.h>
 #include <math.h>
 
 #include "pico/multicore.h"
@@ -97,77 +97,15 @@ volatile bool oscEnabled[OSCSPERVOICE] = {1,1,1};
 Oscillator osc[VOICES * OSCSPERVOICE];
 
 #define CV_VOLT_DEFAULT 580.6f  // default a/d counts per volt - trim for V/octave
-#define EEPROM_BYTES 256
-#define CAL_STORE_MAGIC 0x32485043u // "2HPC"
-#define CAL_STORE_VERSION 1u
-#define CV_VOLT_MIN 100.0f
-#define CV_VOLT_MAX 2000.0f
 
 #define NUMUISTATES 1 // only 1 page in this UI
 enum UIstates {OSCS};
 uint8_t UIstate=OSCS;
 
 bool button=0;
-float cvVolt = CV_VOLT_DEFAULT;
-
-enum CalState {
-  CAL_OFF = 0,
-  CAL_INPUT_1V,
-  CAL_INPUT_3V,
-  CAL_WAIT_OUTPUT
-};
-
-bool calibrationMode = 0;
-CalState calState = CAL_OFF;
-float calCvAt1V = 0.0f;
-float calCvAt3V = 0.0f;
-uint32_t calStateTimer = 0;
-uint32_t calBlinkTimer = 0;
-bool calBlinkOn = 0;
 
 #define DEBOUNCE 10
 uint32_t buttontimer,parameterupdate;
-
-struct CalibrationStore {
-  uint32_t magic;
-  uint16_t version;
-  uint16_t reserved;
-  float cvVolt;
-  uint32_t checksum;
-};
-
-static uint32_t calibrationChecksum(const CalibrationStore &data) {
-  uint32_t hash = 2166136261u; // FNV-1a 32-bit
-  const uint8_t *raw = reinterpret_cast<const uint8_t*>(&data);
-  for (uint32_t i = 0; i < (uint32_t)(sizeof(CalibrationStore) - sizeof(uint32_t)); ++i) {
-    hash ^= raw[i];
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-static bool loadCalibrationFromFlash() {
-  CalibrationStore data;
-  EEPROM.get(0, data);
-  if (data.magic != CAL_STORE_MAGIC) return 0;
-  if (data.version != CAL_STORE_VERSION) return 0;
-  if (!isfinite(data.cvVolt)) return 0;
-  if ((data.cvVolt < CV_VOLT_MIN) || (data.cvVolt > CV_VOLT_MAX)) return 0;
-  if (data.checksum != calibrationChecksum(data)) return 0;
-  cvVolt = data.cvVolt;
-  return 1;
-}
-
-static bool saveCalibrationToFlash() {
-  CalibrationStore data;
-  data.magic = CAL_STORE_MAGIC;
-  data.version = CAL_STORE_VERSION;
-  data.reserved = 0;
-  data.cvVolt = cvVolt;
-  data.checksum = calibrationChecksum(data);
-  EEPROM.put(0, data);
-  return EEPROM.commit();
-}
 
 static void updateOscTuningFromPot(uint8_t oscIndex, uint16_t potValue) {
   if (potValue <= OSC_MUTE_THRESHOLD) {
@@ -184,15 +122,6 @@ static void setLedColor(uint32_t color) {
   LEDS.show();
 }
 
-static void blinkLed(uint32_t color, uint8_t times, uint16_t onMs, uint16_t offMs) {
-  for (uint8_t i = 0; i < times; ++i) {
-    setLedColor(color);
-    delay(onMs);
-    setLedColor(0);
-    delay(offMs);
-  }
-}
-
 static bool buttonPressedEdge() {
   if (!digitalRead(BUTTON1)) {
     if (((millis()-buttontimer) > DEBOUNCE) && !button) {
@@ -205,84 +134,6 @@ static bool buttonPressedEdge() {
     button=0;
   }
   return 0;
-}
-
-static float sampleVOctCV() {
-  return (float)(AD_RANGE - sampleCV1()); // CV input is inverted on hardware
-}
-
-static void startInputCalibration(bool showEntryFlash) {
-  calibrationMode = 1;
-  calState = CAL_INPUT_1V;
-  if (showEntryFlash) blinkLed(GREEN, 3, 120, 120);
-  setLedColor(GREEN);
-}
-
-static void finishCalibrationToOscMode() {
-  calibrationMode = 0;
-  calState = CAL_OFF;
-  setLedColor(RED);
-}
-
-static void updateCalibration() {
-  switch (calState) {
-    case CAL_INPUT_1V:
-      setLedColor(GREEN);
-      if (buttonPressedEdge()) {
-        calCvAt1V = sampleVOctCV();
-        calState = CAL_INPUT_3V;
-        setLedColor(YELLOW);
-      }
-      break;
-
-    case CAL_INPUT_3V:
-      setLedColor(YELLOW);
-      if (buttonPressedEdge()) {
-        calCvAt3V = sampleVOctCV();
-        float span = fabsf(calCvAt3V - calCvAt1V); // 3V - 1V => 2V span
-        if (span > 10.0f) {
-          cvVolt = span * 0.5f;
-          bool saved = saveCalibrationToFlash();
-#ifdef DEBUG
-          if (!saved) Serial.println("warning: failed to save calibration");
-#else
-          (void)saved;
-#endif
-        }
-#ifdef DEBUG
-        Serial.print("cal in: 1V=");
-        Serial.print(calCvAt1V);
-        Serial.print(" 3V=");
-        Serial.print(calCvAt3V);
-        Serial.print(" cvVolt=");
-        Serial.println(cvVolt);
-#endif
-        calState = CAL_WAIT_OUTPUT;
-        calStateTimer = millis();
-        calBlinkTimer = millis();
-        calBlinkOn = 1;
-        setLedColor(RED);
-      }
-      break;
-
-    case CAL_WAIT_OUTPUT:
-      if ((millis() - calBlinkTimer) > 200) {
-        calBlinkTimer = millis();
-        calBlinkOn = !calBlinkOn;
-        setLedColor(calBlinkOn ? RED : 0);
-      }
-
-      if (buttonPressedEdge()) {
-        startInputCalibration(0);
-      } else if ((millis() - calStateTimer) >= 5000) {
-        finishCalibrationToOscMode();
-      }
-      break;
-
-    case CAL_OFF:
-    default:
-      break;
-  }
 }
 
 void setup() { 
@@ -313,19 +164,6 @@ void setup() {
   }
 
   analogReadResolution(AD_BITS); // set up for max resolution
-  EEPROM.begin(EEPROM_BYTES);
-  bool loaded = loadCalibrationFromFlash();
-#ifdef DEBUG
-  if (loaded) {
-    Serial.print("loaded cvVolt from flash: ");
-    Serial.println(cvVolt);
-  } else {
-    Serial.print("using default cvVolt: ");
-    Serial.println(cvVolt);
-  }
-#else
-  (void)loaded;
-#endif
 
 // set up Pico I2S for PT8211 stereo DAC
 	DAC.setBCLK(BCLK);
@@ -335,13 +173,6 @@ void setup() {
 	DAC.setLSBJFormat();  // needed for PT8211 which has funny timing
 	DAC.begin(SAMPLERATE);
 
-  delay(20); // allow pull-up to settle after power-up
-  if (!digitalRead(BUTTON1)) {
-    // enter self-calibration when button is held while powering up
-    button = 1; // consume current hold; require release before first calibration click
-    startInputCalibration(1);
-  }
-
 #ifdef DEBUG  
   Serial.println("finished setup");  
 #endif
@@ -349,11 +180,6 @@ void setup() {
 
 
 void loop() {
-  if (calibrationMode) {
-    updateCalibration();
-    return;
-  }
-
 // only one page in this app but the code is here in case somebody wants to add pages
   if (buttonPressedEdge()) {  // if button pressed advance to next parameter set
     ++UIstate;
@@ -385,9 +211,9 @@ void loop() {
   float cv=(float)(AD_RANGE-sampleCV1()); // V/Oct input (top jack), inverted in hardware
   float FM=(float)(AD_RANGE-sampleCV2())/AD_RANGE-0.5; // FM input (middle jack), range +-0.5 octave
 
-  osc[0].SetFreq(pow(2,(cv/cvVolt)+FM)*minfreq[0]); // ~ 7 octave CV range
-  osc[1].SetFreq(pow(2,(cv/cvVolt)+FM)*minfreq[1]);
-  osc[2].SetFreq(pow(2,(cv/cvVolt)+FM)*minfreq[2]);
+  osc[0].SetFreq(pow(2,(cv/CV_VOLT_DEFAULT)+FM)*minfreq[0]); // ~ 7 octave CV range
+  osc[1].SetFreq(pow(2,(cv/CV_VOLT_DEFAULT)+FM)*minfreq[1]);
+  osc[2].SetFreq(pow(2,(cv/CV_VOLT_DEFAULT)+FM)*minfreq[2]);
 }
 
 // second core setup

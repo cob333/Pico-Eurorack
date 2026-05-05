@@ -37,13 +37,6 @@
 // Short click: switch parameter page.
 // Hold 3 seconds: save the current settings to flash.
 //
-// AUX in calibration:
-// Hold the button during power-up to calibrate the middle jack pitch CV.
-// Green LED: patch 1.000V and click the button.
-// Yellow LED: patch 3.000V and click the button.
-// Red blinking: calibration is saved. Wait 5 seconds to exit, or click to
-// restart the 1V / 3V capture.
-//
 // Requires a Pico 2 / RP2350 board. 44.1kHz is used here to leave headroom for
 // the heaviest Rings models while keeping 4-voice modes available.
 
@@ -74,7 +67,6 @@ constexpr uint32_t kControlUpdateMs = 10;
 #define RINGS_STORE_MAGIC 0x52494E47u // "RING"
 #define RINGS_STORE_VERSION 3u
 #define LEGACY_RINGS_STORE_VERSION 2u
-#define LEGACY_CAL_STORE_VERSION 1u
 #define CV_VOLT_MIN 100.0f
 #define CV_VOLT_MAX 2000.0f
 constexpr uint32_t kSaveHoldMs = 3000;
@@ -104,29 +96,6 @@ float slide_value = 0.0f;
 uint8_t polyphony_setting = 1;
 uint8_t resonator_type = rings::RESONATOR_MODEL_MODAL;
 float cvVolt = CV_VOLT_DEFAULT;
-
-enum CalState {
-  CAL_OFF = 0,
-  CAL_INPUT_1V,
-  CAL_INPUT_3V,
-  CAL_WAIT_OUTPUT
-};
-
-bool calibrationMode = false;
-CalState calState = CAL_OFF;
-float calCvAt1V = 0.0f;
-float calCvAt3V = 0.0f;
-uint32_t calStateTimer = 0;
-uint32_t calBlinkTimer = 0;
-bool calBlinkOn = false;
-
-struct CalibrationStore {
-  uint32_t magic;
-  uint16_t version;
-  uint16_t reserved;
-  float cvVolt;
-  uint32_t checksum;
-};
 
 struct RingsStore {
   uint32_t magic;
@@ -164,16 +133,6 @@ struct LegacyRingsStore {
   uint8_t reserved2;
   uint32_t checksum;
 };
-
-static uint32_t calibrationChecksum(const CalibrationStore &data) {
-  uint32_t hash = 2166136261u;
-  const uint8_t *raw = reinterpret_cast<const uint8_t*>(&data);
-  for (uint32_t i = 0; i < (uint32_t)(sizeof(CalibrationStore) - sizeof(uint32_t)); ++i) {
-    hash ^= raw[i];
-    hash *= 16777619u;
-  }
-  return hash;
-}
 
 static uint32_t ringsStoreChecksum(const RingsStore &data) {
   uint32_t hash = 2166136261u;
@@ -225,19 +184,6 @@ static void sanitizeRuntimeState() {
   if (resonator_type >= pico_rings::kNumModels) {
     resonator_type = pico_rings::kNumModels - 1;
   }
-}
-
-static bool loadLegacyCalibrationFromFlash() {
-  CalibrationStore data;
-  EEPROM.get(0, data);
-  if (data.magic != RINGS_STORE_MAGIC) return false;
-  if (data.version != LEGACY_CAL_STORE_VERSION) return false;
-  if (!isfinite(data.cvVolt)) return false;
-  if ((data.cvVolt < CV_VOLT_MIN) || (data.cvVolt > CV_VOLT_MAX)) return false;
-  if (data.checksum != calibrationChecksum(data)) return false;
-
-  cvVolt = data.cvVolt;
-  return true;
 }
 
 static bool validateStore(const RingsStore &data) {
@@ -467,89 +413,6 @@ inline float SamplePitchNote() {
   return constrain(base_note + cv_note, pico_rings::kMinNote, pico_rings::kMaxNote);
 }
 
-static float samplePitchCV() {
-  return static_cast<float>(AD_RANGE - sampleCV2());
-}
-
-static bool buttonPressedEdge() {
-  if (!digitalRead(BUTTON1)) {
-    if (((millis() - buttontimer) > DEBOUNCE) && !button) {
-      button = true;
-      return true;
-    }
-  } else {
-    buttontimer = millis();
-    button = false;
-  }
-  return false;
-}
-
-static void startInputCalibration(bool showEntryFlash) {
-  calibrationMode = true;
-  calState = CAL_INPUT_1V;
-  pitch_cv_filter_initialized = false;
-  if (showEntryFlash) {
-    blinkLed(GREEN, 3, 120, 120);
-  }
-  setLedColor(GREEN);
-}
-
-static void finishCalibrationToRingsMode() {
-  calibrationMode = false;
-  calState = CAL_OFF;
-  pitch_cv_filter_initialized = false;
-  updateUiLed();
-}
-
-static void updateCalibration() {
-  switch (calState) {
-    case CAL_INPUT_1V:
-      setLedColor(GREEN);
-      if (buttonPressedEdge()) {
-        calCvAt1V = samplePitchCV();
-        calState = CAL_INPUT_3V;
-        setLedColor(YELLOW);
-      }
-      break;
-
-    case CAL_INPUT_3V:
-      setLedColor(YELLOW);
-      if (buttonPressedEdge()) {
-        calCvAt3V = samplePitchCV();
-        const float span = fabsf(calCvAt3V - calCvAt1V);
-        if (span > 10.0f) {
-          cvVolt = span * 0.5f;
-          (void)saveStateToFlash();
-        }
-
-        calState = CAL_WAIT_OUTPUT;
-        calStateTimer = millis();
-        calBlinkTimer = millis();
-        calBlinkOn = true;
-        setLedColor(RED);
-      }
-      break;
-
-    case CAL_WAIT_OUTPUT:
-      if ((millis() - calBlinkTimer) > 200) {
-        calBlinkTimer = millis();
-        calBlinkOn = !calBlinkOn;
-        setLedColor(calBlinkOn ? RED : 0);
-      }
-
-      if (buttonPressedEdge()) {
-        startInputCalibration(false);
-      } else if ((millis() - calStateTimer) >= 5000) {
-        finishCalibrationToRingsMode();
-      }
-      break;
-
-    case CAL_OFF:
-    default:
-      break;
-  }
-}
-
 static void serviceButton() {
   const bool pressed = !digitalRead(BUTTON1);
   const uint32_t now = millis();
@@ -614,8 +477,6 @@ void setup() {
   EEPROM.begin(EEPROM_BYTES);
   if (loadStateFromFlash()) {
     lockpots();
-  } else {
-    (void)loadLegacyCalibrationFromFlash();
   }
 
   LEDS.begin();
@@ -631,21 +492,10 @@ void setup() {
   DAC.setBuffers(1, 128, 0);
   DAC.setLSBJFormat();
   DAC.begin(SAMPLERATE);
-
-  delay(20);
-  if (!digitalRead(BUTTON1)) {
-    button = true;
-    startInputCalibration(true);
-  }
 }
 
 void loop() {
   float current_note;
-
-  if (calibrationMode) {
-    updateCalibration();
-    return;
-  }
 
   serviceButton();
 
