@@ -38,13 +38,19 @@
     }
 
     :root {
-      --bg: #f5f6f8;
+      --bg: #eef1f3;
       --surface: #ffffff;
+      --surface-soft: #f8fafb;
       --ink: #15181c;
-      --muted: #6c737d;
-      --line: #d8dde4;
+      --muted: #68707b;
+      --line: #dbe1e8;
+      --line-strong: #b7c0cb;
+      --accent: #3f464e;
+      --accent-soft: rgba(63, 70, 78, 0.1);
+      --danger: #b53243;
+      --shadow: 0 20px 52px rgba(20, 24, 28, 0.1);
       --radius: 8px;
-      --column-height: clamp(480px, calc(100vh - 190px), 590px);
+      --column-height: clamp(520px, calc(100vh - 196px), 650px);
       font-family: "Jost", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
@@ -57,9 +63,14 @@
       min-height: 100vh;
       color: var(--ink);
       background:
-        linear-gradient(90deg, rgba(245, 246, 248, 0) 0%, rgba(118, 122, 128, 0.12) 22%, rgba(118, 122, 128, 0.38) 40%, #b7b7b7 50%, rgba(118, 122, 128, 0.38) 60%, rgba(118, 122, 128, 0.12) 78%, rgba(245, 246, 248, 0) 100%),
+        linear-gradient(90deg, rgba(21, 24, 28, 0.035) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(21, 24, 28, 0.03) 1px, transparent 1px),
+        linear-gradient(180deg, #fbfcfd 0%, #eef1f3 48%, #e8ecef 100%),
         var(--bg);
+      background-size: 24px 24px, 24px 24px, auto;
       letter-spacing: 0;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
 
     button,
@@ -69,6 +80,7 @@
 
     button {
       cursor: pointer;
+      color: inherit;
     }
 
     .app {
@@ -78,7 +90,7 @@
     .workspace {
       min-height: 100vh;
       display: grid;
-      grid-template-rows: 76px auto 1fr;
+      grid-template-rows: 72px auto 1fr;
     }
 
     .topbar {
@@ -86,43 +98,48 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 0 20px;
+      padding: 0 24px;
       border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.88);
-      backdrop-filter: blur(12px);
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(18px);
       position: sticky;
       top: 0;
       z-index: 10;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.76);
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
       min-width: 0;
     }
 
     .mark {
-      width: 96px;
-      height: 72px;
+      width: 54px;
+      height: 54px;
       border-radius: 8px;
-      object-fit: contain;
+      object-fit: cover;
       background: #fff;
-      border: 0;
-      padding: 0;
+      border: 1px solid var(--line);
+      padding: 4px;
       flex: none;
+      box-shadow: 0 10px 28px rgba(20, 24, 28, 0.09);
     }
 
     .brand h1 {
       margin: 0;
-      font-size: 17px;
+      font-size: 18px;
       white-space: nowrap;
       font-weight: 700;
+      line-height: 1.12;
     }
 
     .brand span {
       color: var(--muted);
       font-size: 13px;
+      display: block;
+      margin-top: 3px;
     }
 
     .top-actions {
@@ -133,16 +150,19 @@
 
     .slot-bar {
       display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 12px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
+      gap: 14px;
       align-items: center;
-      padding: 8px 16px;
+      padding: 12px 24px;
       border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.84);
-      backdrop-filter: blur(12px);
+      background: rgba(248, 250, 251, 0.9);
+      backdrop-filter: blur(16px);
     }
 
     .slot-bar h2 {
+      grid-column: 1;
+      grid-row: 1;
       margin: 0;
       font-size: 13px;
       letter-spacing: 0.04em;
@@ -157,6 +177,7 @@
       border-radius: var(--radius);
       overflow: hidden;
       background: var(--surface);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
     }
 
     .device-switch button,
@@ -164,8 +185,10 @@
       border: 0;
       background: transparent;
       min-height: 36px;
-      padding: 0 12px;
+      padding: 0 14px;
       color: var(--muted);
+      font-weight: 500;
+      transition: background 0.18s ease, color 0.18s ease;
     }
 
     .device-switch button.active,
@@ -176,34 +199,37 @@
 
     .page-tabs {
       margin-top: 14px;
+      flex-wrap: wrap;
     }
 
     .main {
       display: grid;
-      grid-template-columns: minmax(340px, 1fr) minmax(78px, 112px) minmax(360px, 1.05fr);
-      gap: 14px;
-      padding: 16px;
+      grid-template-columns: minmax(320px, 0.92fr) minmax(112px, 160px) minmax(380px, 1.08fr);
+      gap: 18px;
+      padding: 18px 24px 24px;
       align-items: stretch;
     }
 
     .panel {
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 255, 255, 0.97);
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      box-shadow: 0 8px 28px rgba(20, 24, 28, 0.05);
+      box-shadow: var(--shadow);
       height: var(--column-height);
       min-height: 0;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
     .panel-head {
-      padding: 14px 14px 12px;
+      padding: 14px 16px 12px;
       border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fbfc 100%);
     }
 
     .panel-head h2 {
@@ -215,20 +241,30 @@
     }
 
     .panel-body {
-      padding: 14px;
+      padding: 16px;
       flex: 1;
       min-height: 0;
       overflow: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-strong) transparent;
     }
 
     .catalog-search {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      min-height: 38px;
-      padding: 0 10px;
-      margin-bottom: 12px;
-      background: #fafbfc;
+      min-height: 42px;
+      padding: 0 12px;
+      margin-bottom: 14px;
+      background: var(--surface-soft);
+      outline: none;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    }
+
+    .catalog-search:focus {
+      border-color: rgba(63, 70, 78, 0.58);
+      background: #fff;
+      box-shadow: 0 0 0 3px rgba(63, 70, 78, 0.12);
     }
 
     .app-list {
@@ -239,21 +275,28 @@
 
     .app-card {
       display: grid;
-      gap: 6px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 4px 10px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: #fff;
-      padding: 10px;
+      padding: 11px 12px;
       text-align: left;
       user-select: none;
       will-change: transform;
-      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
     }
 
     .app-card:hover {
-      border-color: #aeb4bc;
-      box-shadow: 0 8px 22px rgba(20, 24, 28, 0.08);
+      border-color: var(--line-strong);
+      box-shadow: 0 10px 24px rgba(20, 24, 28, 0.08);
       transform: translateY(-1px);
+    }
+
+    .app-card.active {
+      border-color: rgba(63, 70, 78, 0.62);
+      background: linear-gradient(180deg, #ffffff 0%, rgba(63, 70, 78, 0.07) 100%);
+      box-shadow: inset 3px 0 0 var(--accent), 0 10px 24px rgba(63, 70, 78, 0.12);
     }
 
     .app-card[draggable="true"] {
@@ -271,31 +314,66 @@
 
     .app-card strong {
       font-size: 14px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .app-card span {
       color: var(--muted);
       font-size: 12px;
       line-height: 1.45;
+      grid-column: 1 / -1;
+    }
+
+    .app-card::after {
+      content: "";
+      justify-self: end;
+      align-self: start;
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      background:
+        radial-gradient(circle, var(--line-strong) 1.4px, transparent 1.6px) 2px 2px / 7px 7px;
+    }
+
+    .app-card.active::after {
+      background:
+        radial-gradient(circle, var(--accent) 1.4px, transparent 1.6px) 2px 2px / 7px 7px;
+    }
+
+    .empty-state {
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+      padding: 18px 14px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      text-align: center;
+      font-size: 13px;
     }
 
     .slots {
       display: grid;
-      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      grid-column: 2;
+      grid-row: 1;
+      grid-template-columns: repeat(6, minmax(126px, 1fr));
       gap: 10px;
+      min-width: 0;
     }
 
     .slot-usage {
       grid-column: 2;
+      grid-row: 2;
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: minmax(180px, 420px) auto;
       gap: 10px;
       align-items: center;
       min-width: 0;
     }
 
     .usage-track {
-      height: 8px;
+      height: 9px;
       overflow: hidden;
       border-radius: 999px;
       background: #e8ebef;
@@ -306,7 +384,7 @@
       width: 0%;
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, #15181c, #7f8791);
+      background: linear-gradient(90deg, var(--accent), #15181c);
       transition: width 0.18s ease;
     }
 
@@ -324,7 +402,7 @@
       border: 1px solid #efb6bd;
       border-radius: var(--radius);
       background: #fff1f3;
-      color: #a72d3d;
+      color: var(--danger);
       display: grid;
       place-items: center;
       gap: 2px;
@@ -340,65 +418,6 @@
       white-space: nowrap;
     }
 
-    .trash-icon {
-      position: relative;
-      width: 18px;
-      height: 18px;
-      border: 2px solid currentColor;
-      border-top: 0;
-      border-radius: 2px 2px 4px 4px;
-    }
-
-    .trash-icon::before {
-      content: "";
-      position: absolute;
-      left: -3px;
-      right: -3px;
-      top: -6px;
-      height: 2px;
-      background: currentColor;
-      border-radius: 999px;
-    }
-
-    .trash-icon::after {
-      content: "";
-      position: absolute;
-      left: 5px;
-      top: -10px;
-      width: 6px;
-      height: 2px;
-      background: currentColor;
-      border-radius: 999px;
-    }
-
-    .trash-icon i,
-    .trash-icon i::before,
-    .trash-icon i::after {
-      position: absolute;
-      top: 4px;
-      width: 2px;
-      height: 9px;
-      background: currentColor;
-      border-radius: 999px;
-    }
-
-    .trash-icon i {
-      left: 7px;
-    }
-
-    .trash-icon i::before,
-    .trash-icon i::after {
-      content: "";
-    }
-
-    .trash-icon i::before {
-      left: -5px;
-    }
-
-    .trash-icon i::after {
-      left: 5px;
-    }
-
     .slot-trash.drag-over {
       border-color: #dc5364;
       background: #ffe2e6;
@@ -407,23 +426,23 @@
     }
 
     .slot-empty {
-      color: #a8afb8;
+      color: #98a2ad;
     }
 
     .slot-index.empty {
-      background: #a8afb8;
+      background: #a8b1bb;
     }
 
     .slot-row {
       display: grid;
-      grid-template-columns: 26px minmax(0, 1fr) auto;
+      grid-template-columns: 26px minmax(0, 1fr) 18px;
       gap: 7px;
       align-items: center;
-      min-height: 38px;
+      min-height: 42px;
       padding: 6px 9px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      background: #fafbfc;
+      background: var(--surface-soft);
       user-select: none;
       will-change: transform;
       transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
@@ -437,7 +456,7 @@
     }
 
     .slot-row.drag-over {
-      border-color: #aeb4bc;
+      border-color: var(--line-strong);
       background: #f1f3f6;
       box-shadow: 0 16px 36px rgba(20, 24, 28, 0.18), 0 0 0 3px rgba(20, 24, 28, 0.08);
     }
@@ -449,9 +468,9 @@
     }
 
     .slot-row.active {
-      border-color: var(--ink);
+      border-color: rgba(63, 70, 78, 0.7);
       background: #fff;
-      box-shadow: inset 3px 0 0 var(--ink);
+      box-shadow: inset 3px 0 0 var(--accent), 0 8px 22px rgba(63, 70, 78, 0.12);
     }
 
     .app-dragging .slot-row.drag-over,
@@ -482,37 +501,61 @@
       display: grid;
       place-items: center;
       color: #fff;
-      background: var(--ink);
+      background: linear-gradient(180deg, #2a3138 0%, #15181c 100%);
       font-weight: 700;
       font-size: 12px;
     }
 
     .slot-size {
-      justify-self: end;
-      color: var(--muted);
-      font-size: 12px;
-      white-space: nowrap;
+      display: none;
+    }
+
+    .drag-handle {
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      background:
+        radial-gradient(circle, var(--line-strong) 1.4px, transparent 1.6px) 2px 2px / 7px 7px;
+      opacity: 0;
+      transition: opacity 0.18s ease, background 0.18s ease;
+    }
+
+    .slot-row[draggable="true"] .drag-handle {
+      opacity: 1;
+    }
+
+    .slot-row.active .drag-handle {
+      background:
+        radial-gradient(circle, var(--accent) 1.4px, transparent 1.6px) 2px 2px / 7px 7px;
     }
 
 
     .preview {
       display: grid;
       place-items: start center;
-      background: transparent;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.3)),
+        linear-gradient(90deg, rgba(21, 24, 28, 0.05) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(21, 24, 28, 0.04) 1px, transparent 1px);
+      background-size: auto, 18px 18px, 18px 18px;
       border: 0;
       border-radius: 0;
-      padding: 8px;
+      padding: 12px 8px;
       height: var(--column-height);
       min-height: 0;
       max-height: var(--column-height);
       overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
     }
 
     .module {
       position: relative;
-      width: min(108px, 13vw);
-      min-width: 78px;
+      width: min(130px, 13vw);
+      min-width: 88px;
       justify-self: center;
+      --focus-x: 50%;
+      --focus-y: 50%;
+      --focus-scale: 1;
     }
 
     .module img {
@@ -521,17 +564,26 @@
       display: block;
       object-fit: contain;
       object-position: top center;
-      filter: drop-shadow(0 20px 32px rgba(0, 0, 0, 0.12));
+      filter: drop-shadow(0 22px 36px rgba(0, 0, 0, 0.18));
+      transform: scale(var(--focus-scale));
+      transform-origin: var(--focus-x) var(--focus-y);
+      transition: transform 0.24s ease, transform-origin 0.24s ease, filter 0.24s ease;
+    }
+
+    .module.focusing img {
+      filter: drop-shadow(0 26px 42px rgba(0, 0, 0, 0.24));
     }
 
     .selected-title {
       display: grid;
       gap: 6px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
     }
 
     .selected-title h2 {
       margin: 0;
-      font-size: 26px;
+      font-size: 28px;
       line-height: 1.1;
       font-weight: 700;
     }
@@ -540,6 +592,13 @@
       margin: 0;
       color: var(--muted);
       line-height: 1.5;
+    }
+
+    .selected-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
     }
 
     .chip {
@@ -552,37 +611,68 @@
     }
 
     .chip.live {
-      color: #0d6b63;
-      border-color: rgba(10, 165, 168, 0.35);
-      background: rgba(10, 165, 168, 0.08);
+      color: var(--accent);
+      border-color: rgba(63, 70, 78, 0.42);
+      background: var(--accent-soft);
     }
 
     .function-list {
       display: grid;
       gap: 8px;
-      margin-top: 14px;
+      margin-top: 16px;
     }
 
     .function-row {
       display: grid;
-      grid-template-columns: 82px 1fr;
-      gap: 10px;
-      padding: 10px;
+      grid-template-columns: 86px minmax(0, 1fr);
+      gap: 12px;
+      padding: 11px 12px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      background: #fafbfc;
+      background: var(--surface-soft);
+      align-items: start;
+      transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .function-row:hover,
+    .function-row:focus-within {
+      border-color: rgba(63, 70, 78, 0.55);
+      background: #fff;
+      box-shadow: inset 3px 0 0 var(--accent), 0 8px 22px rgba(63, 70, 78, 0.1);
     }
 
     .function-row b {
+      width: fit-content;
+      max-width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 7px;
+      background: #fff;
       font-size: 12px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.02em;
+      color: #404750;
     }
 
     .function-row span {
       color: #30353b;
       line-height: 1.45;
       font-size: 14px;
+    }
+
+    @media (max-width: 1180px) {
+      .slot-bar {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+      }
+
+      .slot-usage {
+        grid-column: 2;
+      }
+
+      .slot-trash {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+      }
     }
 
     @media (max-width: 1120px) {
@@ -601,12 +691,24 @@
         width: 100%;
       }
 
+      .workspace {
+        grid-template-rows: auto auto 1fr;
+      }
+
       .slot-bar {
         grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        padding: 12px;
+      }
+
+      .slot-bar h2 {
+        grid-column: 1;
+        grid-row: auto;
       }
 
       .slot-usage {
         grid-column: 1;
+        grid-row: auto;
       }
 
       .slot-trash {
@@ -616,6 +718,8 @@
       }
 
       .slots {
+        grid-column: 1;
+        grid-row: auto;
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
@@ -632,6 +736,19 @@
         justify-content: space-between;
       }
 
+      .device-switch {
+        width: 100%;
+      }
+
+      .device-switch button {
+        flex: 1;
+      }
+
+      .main {
+        grid-template-columns: 1fr;
+        padding: 14px 12px 18px;
+      }
+
       .module {
         width: min(132px, 38vw);
         margin: 0 auto;
@@ -646,6 +763,37 @@
 
       .module img {
         max-height: 320px;
+      }
+
+      .function-row {
+        grid-template-columns: 76px minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 520px) {
+      .brand h1 {
+        white-space: normal;
+      }
+
+      .slot-usage {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      .usage-label {
+        white-space: normal;
+      }
+
+      .slots {
+        grid-template-columns: 1fr;
+      }
+
+      .slot-row {
+        grid-template-columns: 28px minmax(0, 1fr) 18px;
+      }
+
+      .selected-title h2 {
+        font-size: 24px;
       }
     }
   </style>
@@ -679,8 +827,7 @@
           <span class="usage-label" id="usageLabel">0KB / 4MB · 0%</span>
         </div>
         <div class="slot-trash" id="slotTrash" aria-label="Drop slot here to delete">
-          <div class="trash-icon" aria-hidden="true"><i></i></div>
-          <span>Delete Slot</span>
+          <span>Delete</span>
         </div>
       </section>
 
@@ -711,6 +858,7 @@
             <div class="selected-title">
               <h2 id="selectedName">TripleOSC</h2>
               <p id="selectedDescription"></p>
+              <div class="selected-meta" id="selectedMeta"></div>
             </div>
             <div class="page-tabs" id="pageTabs"></div>
             <div class="function-list" id="functionList"></div>
@@ -864,12 +1012,24 @@
     const usageLabel = document.getElementById("usageLabel");
     const slotTrash = document.getElementById("slotTrash");
     const functionList = document.getElementById("functionList");
+    const selectedMeta = document.getElementById("selectedMeta");
+    const modulePreview = document.querySelector(".module");
     const DRAG_TYPE = {
       app: "application/x-app-index",
       slot: "application/x-slot-index"
     };
     const SLOT_SIZE_KB = 512;
     const TOTAL_SIZE_KB = 4096;
+    const PANEL_FOCUS = {
+      IN: { x: "50%", y: "17%", scale: 2.4 },
+      PAGE: { x: "50%", y: "27%", scale: 2.35 },
+      "PARAM 1": { x: "50%", y: "38%", scale: 2.25 },
+      "PARAM 2": { x: "50%", y: "49%", scale: 2.25 },
+      "PARAM 3": { x: "50%", y: "60%", scale: 2.25 },
+      "PARAM 4": { x: "50%", y: "71%", scale: 2.25 },
+      AUX: { x: "50%", y: "84%", scale: 2.35 },
+      OUT: { x: "50%", y: "91%", scale: 2.35 }
+    };
 
     document.querySelectorAll("[data-device]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -921,12 +1081,14 @@
       const apps = currentDevice().apps;
       document.getElementById("catalogCount").textContent = `${apps.length} apps`;
       appList.innerHTML = "";
+      let visibleCount = 0;
       apps.forEach((item, index) => {
         const haystack = `${item.name} ${item.description} ${item.pages.map((p) => p.params.join(" ")).join(" ")}`.toLowerCase();
         if (needle && !haystack.includes(needle)) return;
+        visibleCount += 1;
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "app-card";
+        button.className = `app-card${index === state.selectedApp ? " active" : ""}`;
         button.draggable = true;
         button.innerHTML = `<strong>${item.name}</strong><span>${item.description}</span>`;
         button.addEventListener("dragstart", (event) => {
@@ -940,10 +1102,14 @@
         button.addEventListener("click", () => {
           state.selectedApp = index;
           state.selectedPage = 0;
+          renderAppList();
           renderDetails();
         });
         appList.appendChild(button);
       });
+      if (!visibleCount) {
+        appList.innerHTML = `<div class="empty-state">No apps match this search.</div>`;
+      }
     }
 
     function renderSlots() {
@@ -955,6 +1121,7 @@
         row.innerHTML = `
           <div class="slot-index ${name ? "" : "empty"}">${index + 1}</div>
           <strong class="${name ? "" : "slot-empty"}">${name || "Empty"}</strong>
+          <span class="drag-handle" aria-hidden="true"></span>
           <span class="slot-size">${name ? "512KB" : "0KB"}</span>
         `;
         row.addEventListener("dragstart", (event) => {
@@ -1026,6 +1193,7 @@
 
     function renderAllSlotsAndDetails() {
       renderSlots();
+      renderAppList();
       renderDetails();
     }
 
@@ -1109,6 +1277,11 @@
       document.getElementById("selectedName").textContent = appData.name;
       document.getElementById("selectedDescription").textContent = appData.description;
       document.getElementById("slotBadge").textContent = `Slot ${state.selectedSlot + 1}`;
+      selectedMeta.innerHTML = `
+        <span class="chip">${currentDevice().label}</span>
+        <span class="chip">${appData.pages.length} page${appData.pages.length === 1 ? "" : "s"}</span>
+        <span class="chip">${SLOT_SIZE_KB}KB slot</span>
+      `;
 
       pageTabs.innerHTML = "";
       appData.pages.forEach((pageItem, index) => {
@@ -1130,13 +1303,36 @@
         ["PARAM 2", pageData.params[1]],
         ["PARAM 3", pageData.params[2]],
         ["PARAM 4", pageData.params[3]],
-        ["AUX", appData.hardware.aux],
-        ["OUT", appData.hardware.out],
-        ["CV", appData.hardware.cv]
+        ["AUX", appData.hardware.cv],
+        ["OUT", appData.hardware.out]
       ];
       functionList.innerHTML = rows.map(([label, value]) => `
-        <div class="function-row"><b>${label}</b><span>${value || "Not used / TBD"}</span></div>
+        <div class="function-row" data-focus="${label}" tabindex="0"><b>${label}</b><span>${value || "Not used / TBD"}</span></div>
       `).join("");
+      bindFunctionFocus();
+    }
+
+    function bindFunctionFocus() {
+      functionList.querySelectorAll(".function-row").forEach((row) => {
+        row.addEventListener("mouseenter", () => focusPanelControl(row.dataset.focus));
+        row.addEventListener("focusin", () => focusPanelControl(row.dataset.focus));
+        row.addEventListener("mouseleave", clearPanelFocus);
+        row.addEventListener("focusout", clearPanelFocus);
+      });
+    }
+
+    function focusPanelControl(label) {
+      const target = PANEL_FOCUS[label];
+      if (!target) return;
+      modulePreview.classList.add("focusing");
+      modulePreview.style.setProperty("--focus-x", target.x);
+      modulePreview.style.setProperty("--focus-y", target.y);
+      modulePreview.style.setProperty("--focus-scale", target.scale);
+    }
+
+    function clearPanelFocus() {
+      modulePreview.classList.remove("focusing");
+      modulePreview.style.setProperty("--focus-scale", 1);
     }
 
     render();
