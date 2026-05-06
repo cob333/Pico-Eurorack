@@ -222,6 +222,10 @@
       overflow: hidden;
     }
 
+    .details {
+      overflow: visible;
+    }
+
     .panel-head {
       padding: 14px 16px 12px;
       border-bottom: 1px solid var(--line);
@@ -247,6 +251,10 @@
       overflow: auto;
       scrollbar-width: thin;
       scrollbar-color: var(--line-strong) transparent;
+    }
+
+    .details .panel-body {
+      overflow-x: visible;
     }
 
     .catalog-search {
@@ -594,13 +602,6 @@
       line-height: 1.5;
     }
 
-    .selected-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 6px;
-    }
-
     .chip {
       border: 1px solid var(--line);
       border-radius: 999px;
@@ -623,6 +624,8 @@
     }
 
     .function-row {
+      position: relative;
+      z-index: 2;
       display: grid;
       grid-template-columns: 86px minmax(0, 1fr);
       gap: 12px;
@@ -631,7 +634,8 @@
       border-radius: var(--radius);
       background: var(--surface-soft);
       align-items: start;
-      transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+      overflow: visible;
+      transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
     }
 
     .function-row:hover,
@@ -639,6 +643,38 @@
       border-color: rgba(63, 70, 78, 0.55);
       background: #fff;
       box-shadow: inset 3px 0 0 var(--accent), 0 8px 22px rgba(63, 70, 78, 0.1);
+      transform: translateX(8px);
+    }
+
+    .function-row::before {
+      content: "\2190";
+      position: absolute;
+      top: -1px;
+      left: 0;
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: calc(100%);
+      border: 1px solid rgba(21, 24, 28, 0.92);
+      border-radius: 10px 0 0 10px;
+      background: linear-gradient(180deg, #2c3137 0%, #111418 100%);
+      color: #ffffff;
+      font-size: 18px;
+      line-height: 1;
+      box-shadow: 0 12px 28px rgba(20, 24, 28, 0.22);
+      opacity: 0;
+      z-index: -1;
+      transform: translate(0, 0);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.22s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    }
+
+    .function-row:hover::before,
+    .function-row:focus-within::before {
+      opacity: 1;
+      transform: translate(-18px, 0);
+      border-color: rgba(21, 24, 28, 1);
+      box-shadow: 0 16px 34px rgba(20, 24, 28, 0.28);
     }
 
     .function-row b {
@@ -647,6 +683,7 @@
       border: 1px solid var(--line);
       border-radius: 999px;
       padding: 3px 7px;
+      margin-left: 10px;
       background: #fff;
       font-size: 12px;
       text-transform: uppercase;
@@ -850,15 +887,10 @@
         </section>
 
         <aside class="panel details">
-          <div class="panel-head">
-            <h2>Function Map</h2>
-            <span class="chip live" id="slotBadge">Slot 1</span>
-          </div>
           <div class="panel-body">
             <div class="selected-title">
               <h2 id="selectedName">TripleOSC</h2>
               <p id="selectedDescription"></p>
-              <div class="selected-meta" id="selectedMeta"></div>
             </div>
             <div class="page-tabs" id="pageTabs"></div>
             <div class="function-list" id="functionList"></div>
@@ -1012,7 +1044,6 @@
     const usageLabel = document.getElementById("usageLabel");
     const slotTrash = document.getElementById("slotTrash");
     const functionList = document.getElementById("functionList");
-    const selectedMeta = document.getElementById("selectedMeta");
     const modulePreview = document.querySelector(".module");
     const DRAG_TYPE = {
       app: "application/x-app-index",
@@ -1276,13 +1307,6 @@
       const pageData = currentPage();
       document.getElementById("selectedName").textContent = appData.name;
       document.getElementById("selectedDescription").textContent = appData.description;
-      document.getElementById("slotBadge").textContent = `Slot ${state.selectedSlot + 1}`;
-      selectedMeta.innerHTML = `
-        <span class="chip">${currentDevice().label}</span>
-        <span class="chip">${appData.pages.length} page${appData.pages.length === 1 ? "" : "s"}</span>
-        <span class="chip">${SLOT_SIZE_KB}KB slot</span>
-      `;
-
       pageTabs.innerHTML = "";
       appData.pages.forEach((pageItem, index) => {
         const button = document.createElement("button");
