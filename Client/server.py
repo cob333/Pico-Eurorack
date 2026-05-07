@@ -12,6 +12,7 @@ import importlib.util
 import json
 import mimetypes
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -71,29 +72,28 @@ APPS = [
     AppDef("Plaits", "pico", "Plaits", "Sketches/Pico/Plaits", "Build/Pico/250MHz/Plaits_250MHz.uf2"),
     AppDef("PlaitsFM", "pico", "PlaitsFM", "Sketches/Pico/PlaitsFM", "Build/Pico/250MHz/PlaitsFM_250MHz.uf2"),
     AppDef("Rings", "pico", "Rings", "Sketches/Pico/Rings", "Build/Pico/250MHz/Rings_250MHz.uf2"),
-    AppDef("Braids", "pico", "Braids", "Sketches/Pico/Braids", "Build/Pico/150MHz/Braids_150MHz.uf2"),
     AppDef("Moogvoice", "pico", "Moogvoice", "Sketches/Pico/Moogvoice", "Build/Pico/200MHz/Moogvoice_200MHz.uf2"),
-    AppDef("DRUMS", "pico", "DRUMS", "Sketches/Pico/DRUMS", "Build/Pico/150MHz/DRUMS_150MHz.uf2"),
+    AppDef("Drums", "pico", "Drums", "Sketches/Pico/Drums", None),
     AppDef("Branches", "pico", "Branches", "Sketches/Pico/Branches", "Build/Pico/150MHz/Branches_150MHz.uf2"),
     AppDef("DualClock", "pico", "DualClock", "Sketches/Pico/DualClock", "Build/Pico/150MHz/DualClock_150MHz.uf2"),
-    AppDef("16Step_Sequencer", "pico", "16Step Sequencer", "Sketches/Pico/16Step_Sequencer", "Build/Pico/150MHz/16Step_Sequencer_150MHz.uf2"),
-    AppDef("Motion_Recorder", "pico", "Motion Recorder", "Sketches/Pico/Motion_Recorder", "Build/Pico/150MHz/Motion_Recorder_150MHz.uf2"),
-    AppDef("Grids_Sampler", "pico", "Grids Sampler", "Sketches/Pico/Grids_Sampler", "Build/Pico/150MHz/Grids_Sampler_150MHz.uf2"),
+    AppDef("Sequencer", "pico", "Sequencer", "Sketches/Pico/Sequencer", None),
+    AppDef("MotionRecorder", "pico", "MotionRecorder", "Sketches/Pico/MotionRecorder", None),
+    AppDef("GridsSampler", "pico", "GridsSampler", "Sketches/Pico/GridsSampler", None),
     AppDef("DejaVu", "pico", "DejaVu", "Sketches/Pico/DejaVu", "Build/Pico/150MHz/DejaVu_150MHz.uf2"),
     AppDef("Modulation", "pico", "Modulation", "Sketches/Pico/Modulation", "Build/Pico/150MHz/Modulation_150MHz.uf2"),
-    AppDef("Oneshot_Sampler", "pico", "Oneshot Sampler", "Sketches/Pico/Oneshot_Sampler", "Build/Pico/150MHz/Oneshot_Sampler.ino.uf2"),
-    AppDef("DaisySP_Delay", "picofx", "DaisySP Delay", "Sketches/PicoFX/DaisySP_Delay", "Build/PicoFX/150MHz/DaisySP_Delay_150MHz.uf2"),
-    AppDef("DaisySP_Reverb", "picofx", "DaisySP Reverb", "Sketches/PicoFX/DaisySP_Reverb", "Build/PicoFX/150MHz/DaisySP_Reverb_150MHz.uf2"),
-    AppDef("DaisySP_Chorus", "picofx", "DaisySP Chorus", "Sketches/PicoFX/DaisySP_Chorus", "Build/PicoFX/150MHz/DaisySP_Chorus_150MHz.uf2"),
-    AppDef("DaisySP_Flanger", "picofx", "DaisySP Flanger", "Sketches/PicoFX/DaisySP_Flanger", "Build/PicoFX/250MHz/DaisySP_Flanger_250MHz.uf2"),
-    AppDef("DaisySP_Pitchshifter", "picofx", "DaisySP Pitchshifter", "Sketches/PicoFX/DaisySP_Pitchshifter", "Build/PicoFX/150MHz/DaisySP_Pitchshifter_150MHz.uf2"),
+    AppDef("OneshotSampler", "pico", "OneshotSampler", "Sketches/Pico/OneshotSampler", None),
+    AppDef("Delay", "picofx", "Delay", "Sketches/PicoFX/Delay", None),
+    AppDef("Reverb", "picofx", "Reverb", "Sketches/PicoFX/Reverb", None),
+    AppDef("Chorus", "picofx", "Chorus", "Sketches/PicoFX/Chorus", None),
+    AppDef("Flanger", "picofx", "Flanger", "Sketches/PicoFX/Flanger", None),
     AppDef("Ladderfilter", "picofx", "Ladderfilter", "Sketches/PicoFX/Ladderfilter", "Build/PicoFX/150MHz/Ladderfilter_150MHz.uf2"),
     AppDef("Bitcrush", "picofx", "Bitcrush", "Sketches/PicoFX/Bitcrush", None),
     AppDef("Granular", "picofx", "Granular", "Sketches/PicoFX/Granular", "Build/PicoFX/250MHz/Granular_250MHz.uf2"),
     AppDef("BeatBreaker", "picofx", "BeatBreaker", "Sketches/PicoFX/BeatBreaker", "Build/PicoFX/250MHz/BeatBreaker_250MHz.uf2"),
     AppDef("Sidechain", "picofx", "Sidechain", "Sketches/PicoFX/Sidechain", "Build/PicoFX/150MHz/Sidechain_150MHz.uf2"),
     AppDef("Panner", "picofx", "Panner", "Sketches/PicoFX/Panner", "Build/PicoFX/150MHz/Panner_150MHz.uf2"),
-    AppDef("Spectral_Smash", "picofx", "Spectral Smash", "Sketches/PicoFX/Spectral_Smash", "Build/PicoFX/250MHz/Spectral_Smash_250MHz.uf2"),
+    AppDef("Space", "picofx", "Space", "Sketches/PicoFX/Space", None),
+    AppDef("SpectralSmash", "picofx", "SpectralSmash", "Sketches/PicoFX/SpectralSmash", None),
 ]
 
 APP_BY_ID = {app.id: app for app in APPS}
@@ -214,6 +214,29 @@ def existing_libraries() -> list[Path]:
     return [path for path in candidates if path.exists()]
 
 
+def prepared_sketch_path(app: AppDef, build_path: Path) -> Path:
+    sketch_path = app.sketch_path
+    main_ino = sketch_path / f"{sketch_path.name}.ino"
+    if main_ino.exists():
+        return sketch_path
+
+    ino_files = sorted(sketch_path.glob("*.ino"))
+    if len(ino_files) != 1:
+        return sketch_path
+
+    temp_root = build_path.parent / "_sketches" / slug(app.id)
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    shutil.copytree(
+        sketch_path,
+        temp_root,
+        ignore=shutil.ignore_patterns("build_*", ".DS_Store"),
+    )
+    copied_ino = temp_root / ino_files[0].name
+    copied_ino.rename(temp_root / f"{temp_root.name}.ino")
+    return temp_root
+
+
 def run_command(cmd: list[str], job: BuildJob | None = None) -> None:
     if job and job.cancel_requested:
         raise BuildCancelled("cancelled")
@@ -240,12 +263,13 @@ def build_slot_to_path(
 ) -> Path:
     if not app.sketch_path.exists():
         raise RuntimeError(f"missing sketch: {app.sketch}")
+    sketch_path = prepared_sketch_path(app, build_path)
 
     cmd = [
         sys.executable,
         str(BOOT_TOOL),
         "slot-build",
-        str(app.sketch_path),
+        str(sketch_path),
         "--slot",
         str(slot_index),
         "--slot-offset",
@@ -456,6 +480,17 @@ class Handler(SimpleHTTPRequestHandler):
             return
         super().do_HEAD()
 
+    def do_OPTIONS(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_cors_headers()
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/api/generate/start":
@@ -485,10 +520,15 @@ class Handler(SimpleHTTPRequestHandler):
     def send_json(self, status: HTTPStatus, payload: dict) -> None:
         data = json.dumps(payload, indent=2).encode()
         self.send_response(status)
+        self.send_cors_headers()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def send_cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Expose-Headers", "Content-Disposition")
 
     def send_repo_file(self, path: Path, head_only: bool = False) -> None:
         try:
@@ -511,6 +551,7 @@ class Handler(SimpleHTTPRequestHandler):
     def send_download(self, path: Path, filename: str) -> None:
         data = path.read_bytes()
         self.send_response(HTTPStatus.OK)
+        self.send_cors_headers()
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')

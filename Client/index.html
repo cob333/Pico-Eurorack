@@ -112,6 +112,40 @@
       display: grid;
     }
 
+    .site-footer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 8;
+      display: grid;
+      place-items: center;
+      gap: 6px;
+      padding: 18px 24px 24px;
+      border-top: 1px solid rgba(60, 60, 67, 0.12);
+      background: #ffffff;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.35;
+      text-align: center;
+      opacity: var(--footer-progress, 0);
+      pointer-events: none;
+      transform: translateY(calc((1 - var(--footer-progress, 0)) * 100%));
+      transition: opacity 0.08s linear, transform 0.08s linear;
+      will-change: opacity, transform;
+    }
+
+    .footer-reveal-space {
+      height: 118px;
+    }
+
+    .site-footer img {
+      display: block;
+      width: min(80px, 42vw);
+      height: auto;
+      object-fit: contain;
+    }
+
     .build-progress {
       width: min(520px, calc(100vw - 40px));
       display: grid;
@@ -384,7 +418,7 @@
 
     .main {
       display: grid;
-      grid-template-columns: minmax(320px, 0.92fr) minmax(112px, 160px) minmax(380px, 1.08fr);
+      grid-template-columns: minmax(340px, 1fr) minmax(112px, 160px) minmax(340px, 1fr);
       gap: 20px;
       padding: 20px 24px 28px;
       align-items: stretch;
@@ -532,6 +566,19 @@
     .app-card.active::after {
       background:
         radial-gradient(circle, var(--accent) 1.4px, transparent 1.6px) 2px 2px / 7px 7px;
+    }
+
+    .app-card.in-slot::after {
+      content: "\2713";
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(95, 99, 104, 0.42);
+      border-radius: 50%;
+      background: var(--surface-solid);
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
     }
 
     .empty-state {
@@ -801,6 +848,7 @@
     .preview {
       display: grid;
       place-items: start center;
+      justify-self: center;
       background: transparent;
       border: 0;
       border-radius: 0;
@@ -817,6 +865,7 @@
       width: min(130px, 13vw);
       min-width: 88px;
       justify-self: center;
+      margin-inline: auto;
       --focus-x: 50%;
       --focus-y: 50%;
       --focus-scale: 1;
@@ -960,7 +1009,7 @@
       }
     }
 
-    @media (max-width: 1120px) {
+    @media (max-width: 900px) {
       .main {
         grid-template-columns: minmax(280px, 1fr) minmax(96px, 126px);
       }
@@ -1174,6 +1223,11 @@
         </aside>
       </main>
     </section>
+    <div class="footer-reveal-space" id="footerRevealSpace" aria-hidden="true"></div>
+    <footer class="site-footer">
+      <img src="../images/fm.synth.jpg" alt="by fm.synth">
+      <span>enjoy &lt;3</span>
+    </footer>
     <div class="build-overlay" id="buildOverlay" aria-live="polite" aria-label="Build progress">
       <div class="build-progress">
         <div class="build-progress-head">
@@ -1211,17 +1265,13 @@
             page("RED", ["Position", "Structure", "Brightness", "Frequency"]),
             page("VIOLET", ["Position", "Slide", "Polyphony", "Resonator type"])
           ], io("Pitch CV input", "Trigger input", "Not used", "Audio out", "Short click page, hold 3s saves settings")),
-          app("Braids", "Braids macro oscillator", [
-            page("RED", ["Braids model", "Timbre", "Color", "Frequency"]),
-            page("GREEN", ["Attack", "Decay", "Sustain", "Release"])
-          ], io("CV input", "Gate / trigger input", "Not used", "Audio output", "Press to move between pages")),
           app("Moogvoice", "Three oscillator subtractive voice", [
             page("RED", ["Oscillator 1 tuning", "Oscillator 2 tuning", "Oscillator 3 tuning", "Waveform"]),
             page("ORANGE", ["Filter frequency", "Filter resonance", "Envelope to filter depth", "LFO to filter depth"]),
             page("GREEN", ["Attack", "Decay", "Sustain", "Release"]),
             page("BLUE", ["LFO frequency", "LFO waveform", "Unassigned", "Unassigned"])
           ], io("Pitch CV input", "Gate / trigger input", "Not used", "Audio output", "Button changes pages")),
-          app("DRUMS", "One-knob drum voice set", [
+          app("Drums", "One-knob drum voice set", [
             page("Model", ["Output level", "Tone", "Decay", "Frequency"])
           ], io("Decay CV input", "Trigger input", "Not used", "Audio output", "Button selects drum model")),
           app("Branches", "Bernoulli gate router", [
@@ -1230,17 +1280,17 @@
           app("DualClock", "Dual clock generator", [
             page("CLOCK", ["Clock 1 tempo / divider", "Clock 2 tempo / ratio", "Clock 1 swing", "Clock 2 random timing"])
           ], io("External clock input", "Clock input", "Clock 1 output", "Clock 2 output", "Tap tempo, hold 3s sync mode")),
-          app("16Step Sequencer", "Pitch and gate sequencer", [
+          app("Sequencer", "Pitch and gate sequencer", [
             page("Steps 1-4", ["Step 1 pitch", "Step 2 pitch", "Step 3 pitch", "Step 4 pitch"]),
             page("Steps 5-8", ["Step 5 pitch", "Step 6 pitch", "Step 7 pitch", "Step 8 pitch"]),
             page("Steps 9-12", ["Step 9 pitch", "Step 10 pitch", "Step 11 pitch", "Step 12 pitch"]),
             page("Steps 13-16", ["Step 13 pitch", "Step 14 pitch", "Step 15 pitch", "Step 16 pitch"]),
             page("Global", ["Scale", "Clock divider", "Steps 1-16", "Overall pitch"])
           ], io("Clock input", "Clock input", "Gate output", "Pitch CV output", "Short press pages, hold ratchet edit")),
-          app("Motion Recorder", "Two-channel CV motion recorder", [
+          app("MotionRecorder", "Two-channel CV motion recorder", [
             page("Motion", ["Manual CV motion ch2", "Manual CV motion ch1", "Sequence length", "Motion smoothing"])
           ], io("Clock input", "Clock input", "CV out 1", "CV out 2", "Press to start a new recording")),
-          app("Grids Sampler", "Four-channel Grids sample sequencer", [
+          app("GridsSampler", "Four-channel Grids sample sequencer", [
             page("RED", ["Drum Map X", "Drum Map Y", "Chaos", "Random sample chance ch4"]),
             page("GREEN", ["Channel 1 fill", "Channel 2 fill", "Channel 3 fill", "Channel 4 fill"]),
             page("AQUA", ["Channel 1 sample", "Channel 2 sample", "Channel 3 sample", "Channel 4 sample"])
@@ -1253,7 +1303,7 @@
             page("ADSR", ["Attack", "Decay", "Sustain", "Release"]),
             page("LFO", ["Rise", "Fall", "Waveform", "Output level"])
           ], io("Gate or sync input", "Gate / sync", "CV output", "CV output", "Short press toggles ADSR/LFO")),
-          app("Oneshot Sampler", "One-shot sample player", [
+          app("OneshotSampler", "One-shot sample player", [
             page("GREEN", ["Level", "Tone / lowpass brightness", "CV input target", "Pitch"]),
             page("AQUA", ["Start point", "End point", "Attack", "Decay / hold"]),
             page("BLUE", ["Bank selection", "Sample selection", "Sample randomness", "Reverse"])
@@ -1264,23 +1314,20 @@
         label: "PicoFX",
         image: "../images/PicoFX_2D.png",
         apps: [
-          app("DaisySP Delay", "Mono / ping-pong delay", [
+          app("Delay", "Mono / ping-pong delay", [
             page("RED", ["Delay time", "Feedback", "Wet / dry blend", "Output level"])
           ], io("Audio input", "Mono clock input or right audio out", "Right out / clock role", "Left / mono out", "Button toggles mono/ping-pong")),
-          app("DaisySP Reverb", "Stereo reverb", [
+          app("Reverb", "Stereo reverb", [
             page("RED", ["Reverb time", "Filter cutoff", "Wet / dry blend", "Output level"])
           ], io("Audio input", "Audio / CV input", "Right audio out", "Left audio out", "Single page")),
-          app("DaisySP Chorus", "Chorus modulation", [
+          app("Chorus", "Chorus modulation", [
             page("RED", ["Delay", "Feedback", "LFO frequency", "LFO depth"]),
             page("GREEN", ["Wet / dry mix", "Output level", "Unassigned", "Unassigned"])
           ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Button changes page")),
-          app("DaisySP Flanger", "Stereo flanger", [
+          app("Flanger", "Stereo flanger", [
             page("RED", ["Delay", "Feedback", "LFO frequency", "LFO depth"]),
             page("GREEN", ["Wet / dry mix", "Output level", "Stereo width", "LFO waveform"])
           ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Button changes page")),
-          app("DaisySP Pitchshifter", "Delay-line pitch shifter", [
-            page("RED", ["Delay size", "Transposition", "Random modulation", "Wet / dry mix"])
-          ], io("Audio input", "Audio input / CV", "Right audio out", "Left audio out", "Single page")),
           app("Ladderfilter", "CV-scaled ladder filter", [
             page("RED", ["Filter resonance", "Initial frequency", "CV scale 0-1.5x", "Output level"])
           ], io("Frequency CV input", "Audio input", "Not used", "Audio out", "Single page")),
@@ -1299,7 +1346,10 @@
           app("Panner", "Stereo spreader / panner", [
             page("SPREAD", ["Width", "Rate", "Delay / LFO shape", "Output level"])
           ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Single page")),
-          app("Spectral Smash", "Freeze / tear spectral processor", [
+          app("Space", "Spectral reverb / space processor", [
+            page("SPACE", ["Size", "Tone", "Modulation", "Wet / dry mix"])
+          ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Single page")),
+          app("SpectralSmash", "Freeze / tear spectral processor", [
             page("SPECTRAL", ["Warp / tear", "Blur", "Time smear", "Wet / dry mix"])
           ], io("Audio input", "Audio input / right out", "Right audio out", "Left audio out", "Short press freeze, hold recaptures"))
         ]
@@ -1326,7 +1376,7 @@
       generating: false,
       buildJobId: "",
       progressTimer: 0,
-      slots: ["TripleOSC", "Branches", "", "", "", ""]
+      slots: ["", "", "", "", "", ""]
     };
 
     const appList = document.getElementById("appList");
@@ -1343,6 +1393,7 @@
     const buildProgressPercent = document.getElementById("buildProgressPercent");
     const buildProgressMessage = document.getElementById("buildProgressMessage");
     const buildCancel = document.getElementById("buildCancel");
+    const footerRevealSpace = document.getElementById("footerRevealSpace");
     const functionList = document.getElementById("functionList");
     const modulePreview = document.querySelector(".module");
     const DRAG_TYPE = {
@@ -1355,7 +1406,8 @@
       storageBytes: DEFAULT_STORAGE_BYTES,
       slotAlignBytes: 4096,
       maxSlots: 6,
-      appsByName: new Map()
+      appsByName: new Map(),
+      baseUrl: null
     };
     const PANEL_FOCUS = {
       IN: { x: "50%", y: "3%", scale: 2.5 },
@@ -1385,12 +1437,12 @@
 
     search.addEventListener("input", () => renderAppList());
     window.addEventListener("resize", updateSegmentSliders);
+    window.addEventListener("scroll", updateFooterReveal, { passive: true });
+    window.addEventListener("resize", updateFooterReveal);
 
     function resetDeviceDefaults() {
       state.selectedSlot = 0;
-      state.slots = state.device === "pico"
-        ? ["TripleOSC", "Branches", "", "", "", ""]
-        : ["DaisySP Delay", "Bitcrush", "", "", "", ""];
+      state.slots = Array.from({ length: apiState.maxSlots }, () => "");
     }
 
     function currentDevice() {
@@ -1406,9 +1458,45 @@
       return appData.pages[Math.min(state.selectedPage, appData.pages.length - 1)];
     }
 
+    function updateFooterReveal() {
+      if (!footerRevealSpace) return;
+      const revealRect = footerRevealSpace.getBoundingClientRect();
+      const revealDistance = Math.max(1, footerRevealSpace.offsetHeight);
+      const progress = Math.min(1, Math.max(0, (window.innerHeight - revealRect.top) / revealDistance));
+      document.documentElement.style.setProperty("--footer-progress", progress.toFixed(3));
+    }
+
+    function apiCandidates() {
+      const sameOrigin = window.location.protocol === "http:" || window.location.protocol === "https:";
+      const bases = sameOrigin ? [""] : [];
+      for (let port = 8765; port < 8785; port += 1) {
+        bases.push(`http://127.0.0.1:${port}`);
+      }
+      return bases;
+    }
+
+    async function apiFetch(path, options = {}) {
+      const hasPinnedBase = apiState.baseUrl !== null;
+      const bases = hasPinnedBase ? [apiState.baseUrl] : apiCandidates();
+      let lastError = null;
+      for (const base of bases) {
+        try {
+          const response = await fetch(`${base}${path}`, options);
+          if (response.ok || hasPinnedBase) {
+            apiState.baseUrl = base;
+            return response;
+          }
+          lastError = new Error(`HTTP ${response.status}`);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error("API unavailable");
+    }
+
     async function loadManifest() {
       try {
-        const response = await fetch("/api/manifest", { cache: "no-store" });
+        const response = await apiFetch("/api/manifest", { cache: "no-store" });
         if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
         const manifest = await response.json();
         apiState.available = true;
@@ -1466,12 +1554,17 @@
         const haystack = `${item.name} ${item.description} ${item.pages.map((p) => p.params.join(" ")).join(" ")}`.toLowerCase();
         if (needle && !haystack.includes(needle)) return;
         visibleCount += 1;
+        const isInSlot = isAppInSlot(item.name);
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `app-card${index === state.selectedApp ? " active" : ""}`;
-        button.draggable = true;
+        button.className = `app-card${index === state.selectedApp ? " active" : ""}${isInSlot ? " in-slot" : ""}`;
+        button.draggable = !isInSlot;
         button.innerHTML = `<strong>${item.name}</strong><span>${item.description} · ${appSizeLabel(item)}</span>`;
         button.addEventListener("dragstart", (event) => {
+          if (isAppInSlot(item.name)) {
+            event.preventDefault();
+            return;
+          }
           event.dataTransfer.setData(DRAG_TYPE.app, String(index));
           event.dataTransfer.effectAllowed = "copy";
           beginDrag("app", button);
@@ -1548,7 +1641,7 @@
     function assignAppFromDrag(event, slotIndex) {
       const appIndex = Number(event.dataTransfer.getData(DRAG_TYPE.app));
       const appData = currentDevice().apps[appIndex];
-      if (!appData) {
+      if (!appData || isAppInSlot(appData.name)) {
         clearDragState();
         return;
       }
@@ -1584,6 +1677,10 @@
       if (appIndex < 0) return;
       state.selectedApp = appIndex;
       state.selectedPage = 0;
+    }
+
+    function isAppInSlot(name) {
+      return Boolean(name) && state.slots.includes(name);
     }
 
     function appByName(name) {
@@ -1830,7 +1927,7 @@
       beginBuildUi();
       setStatus("Building...");
       try {
-        const response = await fetch("/api/generate/start", {
+        const response = await apiFetch("/api/generate/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1856,7 +1953,7 @@
     async function pollBuildStatus() {
       if (!state.buildJobId) return;
       try {
-        const response = await fetch(`/api/generate/status?id=${encodeURIComponent(state.buildJobId)}`, { cache: "no-store" });
+        const response = await apiFetch(`/api/generate/status?id=${encodeURIComponent(state.buildJobId)}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Status HTTP ${response.status}`);
         const job = await response.json();
         setBuildProgress(job.progress || 0, job.message || "Building");
@@ -1884,7 +1981,7 @@
     }
 
     async function downloadBuildOutput(jobId) {
-      const response = await fetch(`/api/generate/download?id=${encodeURIComponent(jobId)}`);
+      const response = await apiFetch(`/api/generate/download?id=${encodeURIComponent(jobId)}`);
       if (!response.ok) throw new Error(`Download HTTP ${response.status}`);
       const blob = await response.blob();
       const filename = filenameFromDisposition(response.headers.get("Content-Disposition"))
@@ -1904,7 +2001,7 @@
       buildCancel.disabled = true;
       setBuildProgress(Number.parseInt(buildProgressPercent.textContent, 10) || 0, "Cancelling");
       try {
-        await fetch("/api/generate/cancel", {
+        await apiFetch("/api/generate/cancel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: state.buildJobId })
@@ -1921,6 +2018,7 @@
     }
 
     loadManifest();
+    updateFooterReveal();
   </script>
 </body>
 </html>
