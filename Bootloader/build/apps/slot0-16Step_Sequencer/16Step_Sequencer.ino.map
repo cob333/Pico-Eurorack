@@ -2621,7 +2621,7 @@ Discarded input sections
 Memory Configuration
 
 Name             Origin             Length             Attributes
-FLASH            0x10040000         0x00080000         xr
+FLASH            0x10040000         0x00019000         xr
 PSRAM            0x11000000         0x00000000         xrw
 RAM              0x20000000         0x00080000         xrw
 SCRATCH_X        0x20080000         0x00001000         xrw
@@ -2653,7 +2653,7 @@ LOAD /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-
                 0x10042ff0        0x4 LONG 0x103fe000
                 0x10042ff4        0x4 LONG 0x103fe000
                 0x10042ff8        0x4 LONG 0x103fe000
-                0x10042ffc        0x4 LONG 0x80000
+                0x10042ffc        0x4 LONG 0x19000
 
 .text           0x10043000     0xf5e0
  *(.vectors)

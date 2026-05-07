@@ -91,6 +91,94 @@
       min-height: 100vh;
     }
 
+    .app.generating .workspace {
+      filter: saturate(0.62) opacity(0.42);
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .build-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      place-items: center;
+      background: rgba(247, 248, 250, 0.72);
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
+    }
+
+    .app.generating .build-overlay {
+      display: grid;
+    }
+
+    .build-progress {
+      width: min(520px, calc(100vw - 40px));
+      display: grid;
+      gap: 12px;
+    }
+
+    .build-progress-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .build-progress-head span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .build-progress-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 32px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .build-progress-track {
+      height: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(60, 60, 67, 0.16);
+      border-radius: 999px;
+      background: rgba(118, 118, 128, 0.16);
+    }
+
+    .build-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: #000000;
+      transition: width 0.18s ease;
+    }
+
+    .build-cancel {
+      width: 32px;
+      height: 32px;
+      border: 1px solid rgba(60, 60, 67, 0.16);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+    }
+
+    .build-cancel:hover,
+    .build-cancel:focus-visible {
+      border-color: rgba(215, 0, 21, 0.28);
+      background: #fff1f2;
+      color: var(--danger);
+      outline: none;
+    }
+
     .workspace {
       min-height: 100vh;
       display: grid;
@@ -173,19 +261,34 @@
       transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease, background 0.18s ease;
     }
 
+    .generate-button.ready {
+      background: linear-gradient(180deg, #42d27a 0%, #168f45 100%);
+      box-shadow: 0 8px 20px rgba(22, 143, 69, 0.24);
+    }
+
+    .generate-button.blocked {
+      background: linear-gradient(180deg, #b8bcc2 0%, #7f858d 100%);
+      box-shadow: none;
+    }
+
     .generate-button:disabled {
-      cursor: wait;
+      cursor: not-allowed;
       opacity: 0.68;
       transform: none;
       box-shadow: none;
     }
 
-    .generate-button:hover,
-    .generate-button:focus-visible {
+    .generate-button:not(:disabled):hover,
+    .generate-button:not(:disabled):focus-visible {
       transform: translateY(-1px);
       box-shadow: 0 14px 28px rgba(60, 60, 67, 0.28);
       filter: saturate(1.08);
       outline: none;
+    }
+
+    .generate-button.ready:not(:disabled):hover,
+    .generate-button.ready:not(:disabled):focus-visible {
+      box-shadow: 0 14px 28px rgba(22, 143, 69, 0.3);
     }
 
     .slot-bar {
@@ -1009,12 +1112,12 @@
         <div class="brand">
           <img class="mark" src="../images/Pico_Icon.jpg" alt="" aria-hidden="true">
           <div>
-            <h1>Pico Workshop</h1>
+            <h1>Workshop</h1>
           </div>
         </div>
         <div class="top-actions">
           <span class="status-chip" id="generationStatus">Local mode</span>
-          <button class="generate-button" id="generateButton" type="button">Generate</button>
+          <button class="generate-button blocked" id="generateButton" type="button" disabled>Generate</button>
           <div class="device-switch" aria-label="Device Switch">
             <button type="button" data-device="pico">Pico</button>
             <button type="button" data-device="picofx">PicoFX</button>
@@ -1029,7 +1132,7 @@
           <div class="usage-track" aria-hidden="true">
             <div class="usage-fill" id="usageFill"></div>
           </div>
-          <span class="usage-label" id="usageLabel">0KB / 4MB · 0%</span>
+          <span class="usage-label" id="usageLabel">0KB / 3.5MB</span>
         </div>
         <div class="slot-actions" aria-label="Slot actions">
           <div class="slot-trash" id="slotTrash" aria-label="Drop slot here to delete">
@@ -1071,6 +1174,20 @@
         </aside>
       </main>
     </section>
+    <div class="build-overlay" id="buildOverlay" aria-live="polite" aria-label="Build progress">
+      <div class="build-progress">
+        <div class="build-progress-head">
+          <strong id="buildProgressMessage">Building</strong>
+          <span id="buildProgressPercent">0%</span>
+        </div>
+        <div class="build-progress-row">
+          <div class="build-progress-track" aria-hidden="true">
+            <div class="build-progress-fill" id="buildProgressFill"></div>
+          </div>
+          <button class="build-cancel" id="buildCancel" type="button" aria-label="Cancel build">&times;</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -1206,6 +1323,9 @@
       selectedApp: 0,
       selectedPage: 0,
       selectedSlot: 0,
+      generating: false,
+      buildJobId: "",
+      progressTimer: 0,
       slots: ["TripleOSC", "Branches", "", "", "", ""]
     };
 
@@ -1219,32 +1339,38 @@
     const clearAllSlots = document.getElementById("clearAllSlots");
     const generateButton = document.getElementById("generateButton");
     const generationStatus = document.getElementById("generationStatus");
+    const buildProgressFill = document.getElementById("buildProgressFill");
+    const buildProgressPercent = document.getElementById("buildProgressPercent");
+    const buildProgressMessage = document.getElementById("buildProgressMessage");
+    const buildCancel = document.getElementById("buildCancel");
     const functionList = document.getElementById("functionList");
     const modulePreview = document.querySelector(".module");
     const DRAG_TYPE = {
       app: "application/x-app-index",
       slot: "application/x-slot-index"
     };
-    const DEFAULT_SLOT_BYTES = 512 * 1024;
+    const DEFAULT_STORAGE_BYTES = 3584 * 1024;
     const apiState = {
       available: false,
-      slotBytes: DEFAULT_SLOT_BYTES,
+      storageBytes: DEFAULT_STORAGE_BYTES,
+      slotAlignBytes: 4096,
       maxSlots: 6,
       appsByName: new Map()
     };
     const PANEL_FOCUS = {
-      IN: { x: "50%", y: "17%", scale: 2.4 },
-      PAGE: { x: "50%", y: "27%", scale: 2.35 },
-      "PARAM 1": { x: "50%", y: "38%", scale: 2.25 },
-      "PARAM 2": { x: "50%", y: "49%", scale: 2.25 },
-      "PARAM 3": { x: "50%", y: "60%", scale: 2.25 },
-      "PARAM 4": { x: "50%", y: "71%", scale: 2.25 },
-      AUX: { x: "50%", y: "84%", scale: 2.35 },
-      OUT: { x: "50%", y: "91%", scale: 2.35 }
+      IN: { x: "50%", y: "3%", scale: 2.5 },
+      PAGE: { x: "50%", y: "17%", scale: 2.5 },
+      "PARAM 1": { x: "50%", y: "29%", scale: 2.5 },
+      "PARAM 2": { x: "50%", y: "41%", scale: 2.5 },
+      "PARAM 3": { x: "50%", y: "53%", scale: 2.5 },
+      "PARAM 4": { x: "50%", y: "65%", scale: 2.5 },
+      AUX: { x: "50%", y: "81%", scale: 2.5 },
+      OUT: { x: "50%", y: "92%", scale: 2.5 }
     };
     const SLOT_COLOR_CLASSES = ["orange", "yellow", "tiffany", "aqua", "blue", "violet"];
 
     generateButton.addEventListener("click", generateFirmware);
+    buildCancel.addEventListener("click", cancelBuild);
 
     document.querySelectorAll("[data-device]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1286,7 +1412,8 @@
         if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
         const manifest = await response.json();
         apiState.available = true;
-        apiState.slotBytes = manifest.slotBytes || DEFAULT_SLOT_BYTES;
+        apiState.storageBytes = manifest.storageBytes || DEFAULT_STORAGE_BYTES;
+        apiState.slotAlignBytes = manifest.slotAlignBytes || 4096;
         apiState.maxSlots = manifest.maxSlots || 6;
         apiState.appsByName = new Map(manifest.apps.map((item) => [item.name, item]));
         hydrateAppMetadata();
@@ -1305,8 +1432,8 @@
           const meta = apiState.appsByName.get(item.name);
           item.id = meta?.id || item.name;
           item.sizeBytes = Number.isFinite(meta?.sizeBytes) ? meta.sizeBytes : null;
-          item.slotBytes = meta?.slotBytes || apiState.slotBytes;
-          item.fitsSlot = meta?.fitsSlot;
+          item.allocatedBytes = Number.isFinite(meta?.allocatedBytes) ? meta.allocatedBytes : item.sizeBytes;
+          item.fitsRegion = meta?.fitsRegion;
         });
       });
     }
@@ -1465,7 +1592,7 @@
 
     function appSizeLabel(appData) {
       if (!appData || !Number.isFinite(appData.sizeBytes)) return "Build";
-      const suffix = appData.fitsSlot === false ? " > slot" : "";
+      const suffix = appData.fitsRegion === false ? " > storage" : "";
       return `${formatCapacityBytes(appData.sizeBytes)}${suffix}`;
     }
 
@@ -1538,12 +1665,61 @@
       const knownBytes = selectedApps.reduce((total, item) => {
         return total + (Number.isFinite(item.sizeBytes) ? item.sizeBytes : 0);
       }, 0);
+      const allocatedBytes = selectedApps.reduce((total, item) => {
+        return total + (Number.isFinite(item.allocatedBytes) ? item.allocatedBytes : 0);
+      }, 0);
       const unknownCount = selectedApps.filter((item) => !Number.isFinite(item.sizeBytes)).length;
-      const totalBytes = state.slots.length * apiState.slotBytes;
-      const reservedBytes = selectedApps.length * apiState.slotBytes;
-      const percent = totalBytes ? Math.min(100, Math.round((knownBytes / totalBytes) * 100)) : 0;
+      const totalBytes = apiState.storageBytes;
+      const percent = totalBytes ? Math.min(100, Math.round((allocatedBytes / totalBytes) * 100)) : 0;
       usageFill.style.width = `${percent}%`;
-      usageLabel.textContent = `${formatCapacityBytes(knownBytes)} / ${formatCapacityBytes(totalBytes)} · ${formatCapacityBytes(reservedBytes)} reserved${unknownCount ? ` · ${unknownCount} build` : ""}`;
+      usageLabel.textContent = `${formatCapacityBytes(knownBytes)} / ${formatCapacityBytes(totalBytes)}${unknownCount ? ` · ${unknownCount} build` : ""}`;
+      updateGenerateAvailability(allocatedBytes, selectedApps.length);
+    }
+
+    function updateGenerateAvailability(allocatedBytes = null, selectedCount = null, updateStatus = true) {
+      const selectedApps = selectedCount === null ? state.slots.map(appByName).filter(Boolean) : null;
+      const count = selectedCount === null ? selectedApps.length : selectedCount;
+      const usedBytes = allocatedBytes === null
+        ? selectedApps.reduce((total, item) => total + (Number.isFinite(item.allocatedBytes) ? item.allocatedBytes : 0), 0)
+        : allocatedBytes;
+      const withinStorage = usedBytes <= apiState.storageBytes;
+      const canGenerate = apiState.available && count > 0 && withinStorage && !state.generating;
+
+      generateButton.disabled = !canGenerate;
+      generateButton.classList.toggle("ready", canGenerate);
+      generateButton.classList.toggle("blocked", !canGenerate);
+
+      if (updateStatus && !state.generating) {
+        if (!apiState.available) setStatus("API offline", true);
+        else if (!count) setStatus("Select app");
+        else if (!withinStorage) setStatus("Storage full", true);
+        else setStatus("Ready");
+      }
+    }
+
+    function setBuildProgress(progress, message = "Building") {
+      const value = Math.max(0, Math.min(100, Number(progress) || 0));
+      buildProgressFill.style.width = `${value}%`;
+      buildProgressPercent.textContent = `${Math.round(value)}%`;
+      buildProgressMessage.textContent = message;
+    }
+
+    function beginBuildUi() {
+      state.generating = true;
+      document.querySelector(".app").classList.add("generating");
+      setBuildProgress(0, "Queued");
+      updateGenerateAvailability();
+    }
+
+    function endBuildUi(updateStatus = true) {
+      state.generating = false;
+      state.buildJobId = "";
+      if (state.progressTimer) {
+        clearTimeout(state.progressTimer);
+        state.progressTimer = 0;
+      }
+      document.querySelector(".app").classList.remove("generating");
+      updateGenerateAvailability(null, null, updateStatus);
     }
 
     function formatCapacityBytes(bytes) {
@@ -1642,16 +1818,19 @@
         setStatus("No slots", true);
         return;
       }
-      const oversized = state.slots.map(appByName).find((item) => item?.fitsSlot === false);
-      if (oversized) {
-        setStatus(`${oversized.name} too large`, true);
+      const selectedApps = state.slots.map(appByName).filter(Boolean);
+      const allocatedBytes = selectedApps.reduce((total, item) => {
+        return total + (Number.isFinite(item.allocatedBytes) ? item.allocatedBytes : 0);
+      }, 0);
+      if (allocatedBytes > apiState.storageBytes) {
+        setStatus("Storage full", true);
         return;
       }
 
-      generateButton.disabled = true;
+      beginBuildUi();
       setStatus("Building...");
       try {
-        const response = await fetch("/api/generate", {
+        const response = await fetch("/api/generate/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1664,22 +1843,74 @@
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.error || `Generate HTTP ${response.status}`);
         }
-        const blob = await response.blob();
-        const filename = filenameFromDisposition(response.headers.get("Content-Disposition"))
-          || `Pico-Eurorack-${state.device}.uf2`;
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-        setStatus("Generated");
+        const job = await response.json();
+        state.buildJobId = job.id;
+        setBuildProgress(job.progress || 0, job.message || "Queued");
+        pollBuildStatus();
       } catch (error) {
         setStatus(error.message || "Generate failed", true);
+        endBuildUi(false);
+      }
+    }
+
+    async function pollBuildStatus() {
+      if (!state.buildJobId) return;
+      try {
+        const response = await fetch(`/api/generate/status?id=${encodeURIComponent(state.buildJobId)}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Status HTTP ${response.status}`);
+        const job = await response.json();
+        setBuildProgress(job.progress || 0, job.message || "Building");
+
+        if (job.status === "done") {
+          await downloadBuildOutput(job.id);
+          setStatus("Generated");
+          endBuildUi(false);
+          return;
+        }
+        if (job.status === "cancelled") {
+          setStatus("Cancelled", true);
+          endBuildUi(false);
+          return;
+        }
+        if (job.status === "error") {
+          throw new Error(job.error || "Generate failed");
+        }
+
+        state.progressTimer = window.setTimeout(pollBuildStatus, 500);
+      } catch (error) {
+        setStatus(error.message || "Generate failed", true);
+        endBuildUi(false);
+      }
+    }
+
+    async function downloadBuildOutput(jobId) {
+      const response = await fetch(`/api/generate/download?id=${encodeURIComponent(jobId)}`);
+      if (!response.ok) throw new Error(`Download HTTP ${response.status}`);
+      const blob = await response.blob();
+      const filename = filenameFromDisposition(response.headers.get("Content-Disposition"))
+        || `Pico-Eurorack-${state.device}.uf2`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function cancelBuild() {
+      if (!state.buildJobId) return;
+      buildCancel.disabled = true;
+      setBuildProgress(Number.parseInt(buildProgressPercent.textContent, 10) || 0, "Cancelling");
+      try {
+        await fetch("/api/generate/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: state.buildJobId })
+        });
       } finally {
-        generateButton.disabled = false;
+        buildCancel.disabled = false;
       }
     }
 

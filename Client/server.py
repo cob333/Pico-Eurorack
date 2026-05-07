@@ -14,12 +14,14 @@ import mimetypes
 import re
 import subprocess
 import sys
+import threading
 import time
+import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +29,8 @@ CLIENT_DIR = ROOT / "Client"
 BOOT_TOOL = ROOT / "Bootloader" / "Tools" / "pico_boot_apps.py"
 SELECTOR_UF2 = ROOT / "Bootloader" / "build" / "Pico_Firmware_selector_only.uf2"
 BUILD_ROOT = ROOT / "Bootloader" / "build" / "client"
-SLOT_BYTES = 512 * 1024
+APP_REGION_BYTES = 3584 * 1024
+SLOT_ALIGN_BYTES = 4096
 MAX_SLOTS = 6
 DEFAULT_TARGET = "rp2350"
 DEFAULT_CPU_HZ = 250_000_000
@@ -94,6 +97,50 @@ APPS = [
 ]
 
 APP_BY_ID = {app.id: app for app in APPS}
+JOBS: dict[str, "BuildJob"] = {}
+JOBS_LOCK = threading.Lock()
+
+
+class BuildCancelled(RuntimeError):
+    pass
+
+
+@dataclass
+class BuildJob:
+    id: str
+    status: str = "queued"
+    progress: int = 0
+    message: str = "Queued"
+    output_path: Path | None = None
+    output_name: str | None = None
+    error: str | None = None
+    process: subprocess.Popen | None = None
+    cancel_requested: bool = False
+
+    def snapshot(self) -> dict:
+        return {
+            "id": self.id,
+            "status": self.status,
+            "progress": self.progress,
+            "message": self.message,
+            "outputName": self.output_name,
+            "error": self.error,
+        }
+
+    def update(self, progress: int, message: str) -> None:
+        self.progress = max(0, min(100, int(progress)))
+        self.message = message
+
+    def cancel(self) -> None:
+        self.cancel_requested = True
+        self.status = "cancelled"
+        self.message = "Cancelled"
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+
+
+def align_up(value: int, alignment: int) -> int:
+    return ((value + alignment - 1) // alignment) * alignment
 
 
 def app_size(app: AppDef) -> dict:
@@ -101,16 +148,17 @@ def app_size(app: AppDef) -> dict:
     if path is None or not path.exists():
         return {
             "sizeBytes": None,
-            "slotBytes": SLOT_BYTES,
-            "fitsSlot": None,
+            "allocatedBytes": None,
+            "fitsRegion": None,
             "source": None,
         }
     blocks = BOOT.read_uf2(path)
-    size_bytes = BOOT.slot_usage_bytes(blocks, SLOT_BYTES)
+    size_bytes = BOOT.app_usage_bytes(blocks)
+    allocated_bytes = align_up(size_bytes, SLOT_ALIGN_BYTES)
     return {
         "sizeBytes": size_bytes,
-        "slotBytes": SLOT_BYTES,
-        "fitsSlot": size_bytes <= SLOT_BYTES,
+        "allocatedBytes": allocated_bytes,
+        "fitsRegion": allocated_bytes <= APP_REGION_BYTES,
         "source": str(path.relative_to(ROOT)),
     }
 
@@ -121,7 +169,13 @@ def size_probe_uf2(app: AppDef) -> Path | None:
     if cached:
         return cached[0]
     try:
-        return build_slot_to_path(0, app, build_path)
+        return build_slot_to_path(
+            0,
+            app,
+            build_path,
+            BOOT.PICO_SELECTOR_FIRST_APP_OFFSET,
+            APP_REGION_BYTES,
+        )
     except Exception:
         return None
 
@@ -138,7 +192,8 @@ def manifest_payload() -> dict:
         row.update(app_size(app))
         apps.append(row)
     return {
-        "slotBytes": SLOT_BYTES,
+        "storageBytes": APP_REGION_BYTES,
+        "slotAlignBytes": SLOT_ALIGN_BYTES,
         "maxSlots": MAX_SLOTS,
         "selector": str(SELECTOR_UF2.relative_to(ROOT)),
         "target": DEFAULT_TARGET,
@@ -159,14 +214,30 @@ def existing_libraries() -> list[Path]:
     return [path for path in candidates if path.exists()]
 
 
-def run_command(cmd: list[str]) -> None:
-    proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
+def run_command(cmd: list[str], job: BuildJob | None = None) -> None:
+    if job and job.cancel_requested:
+        raise BuildCancelled("cancelled")
+    proc = subprocess.Popen(cmd, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if job:
+        job.process = proc
+    stdout, stderr = proc.communicate()
+    if job:
+        job.process = None
+    if job and job.cancel_requested:
+        raise BuildCancelled("cancelled")
     if proc.returncode:
-        tail = "\n".join((proc.stdout + "\n" + proc.stderr).splitlines()[-80:])
+        tail = "\n".join((stdout + "\n" + stderr).splitlines()[-80:])
         raise RuntimeError(tail or f"command failed: {' '.join(cmd)}")
 
 
-def build_slot_to_path(slot_index: int, app: AppDef, build_path: Path) -> Path:
+def build_slot_to_path(
+    slot_index: int,
+    app: AppDef,
+    build_path: Path,
+    slot_offset: int,
+    slot_size: int,
+    job: BuildJob | None = None,
+) -> Path:
     if not app.sketch_path.exists():
         raise RuntimeError(f"missing sketch: {app.sketch}")
 
@@ -177,6 +248,10 @@ def build_slot_to_path(slot_index: int, app: AppDef, build_path: Path) -> Path:
         str(app.sketch_path),
         "--slot",
         str(slot_index),
+        "--slot-offset",
+        str(slot_offset),
+        "--slot-size",
+        str(slot_size),
         "--fqbn",
         DEFAULT_FQBN,
         "--build-path",
@@ -184,7 +259,7 @@ def build_slot_to_path(slot_index: int, app: AppDef, build_path: Path) -> Path:
     ]
     for library in existing_libraries():
         cmd.extend(["--library", str(library)])
-    run_command(cmd)
+    run_command(cmd, job)
 
     uf2_files = sorted(build_path.glob("*.ino.uf2"))
     if not uf2_files:
@@ -192,12 +267,39 @@ def build_slot_to_path(slot_index: int, app: AppDef, build_path: Path) -> Path:
     return uf2_files[0]
 
 
-def build_slot(slot_index: int, app: AppDef) -> Path:
+def build_slot(slot_index: int, app: AppDef, slot_offset: int, slot_size: int, job: BuildJob | None = None) -> Path:
     build_path = BUILD_ROOT / f"slot{slot_index}-{slug(app.id)}"
-    return build_slot_to_path(slot_index, app, build_path)
+    return build_slot_to_path(slot_index, app, build_path, slot_offset, slot_size, job)
 
 
-def generate_firmware(request: dict) -> tuple[Path, str]:
+def plan_layout(selected: list[tuple[int, AppDef]]) -> list[dict]:
+    next_offset = BOOT.PICO_SELECTOR_FIRST_APP_OFFSET
+    region_end = BOOT.PICO_SELECTOR_FIRST_APP_OFFSET + APP_REGION_BYTES
+    plan = []
+    for slot_index, app in selected:
+        size = app_size(app)
+        if not isinstance(size["sizeBytes"], int):
+            raise RuntimeError(f"cannot measure {app.name}")
+        allocated = align_up(size["sizeBytes"], SLOT_ALIGN_BYTES)
+        if next_offset + allocated > region_end:
+            raise RuntimeError(
+                f"selected apps use {next_offset + allocated - BOOT.PICO_SELECTOR_FIRST_APP_OFFSET} bytes, "
+                f"exceeding the 3.5MiB app region"
+            )
+        plan.append(
+            {
+                "slot": slot_index,
+                "app": app,
+                "offset": next_offset,
+                "size": allocated,
+                "used": size["sizeBytes"],
+            }
+        )
+        next_offset += allocated
+    return plan
+
+
+def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path, str]:
     device = request.get("device")
     slots = request.get("slots")
     active = int(request.get("active", 0))
@@ -217,9 +319,6 @@ def generate_firmware(request: dict) -> tuple[Path, str]:
             raise RuntimeError(f"unknown app id: {app_id}")
         if app.device != device:
             raise RuntimeError(f"{app.name} does not belong to {device}")
-        size = app_size(app)
-        if size["fitsSlot"] is False:
-            raise RuntimeError(f"{app.name} uses {size['sizeBytes']} bytes and exceeds one 512KB slot")
         selected.append((index, app))
 
     if not selected:
@@ -229,11 +328,26 @@ def generate_firmware(request: dict) -> tuple[Path, str]:
     if active not in valid_slots:
         active = selected[0][0]
 
-    built = [(index, build_slot(index, app)) for index, app in selected]
-    for index, uf2_path in built:
-        size_bytes = BOOT.slot_usage_bytes(BOOT.read_uf2(uf2_path), SLOT_BYTES)
-        if size_bytes > SLOT_BYTES:
-            raise RuntimeError(f"slot {index + 1} app exceeds 512KB")
+    layout = plan_layout(selected)
+    if job:
+        job.status = "running"
+        job.update(3, "Planning")
+    built = []
+    total_steps = len(layout) + 1
+    for step_index, item in enumerate(layout):
+        if job and job.cancel_requested:
+            raise BuildCancelled("cancelled")
+        if job:
+            start_percent = 5 + int((step_index / total_steps) * 85)
+            job.update(start_percent, f"Building {item['app'].name}")
+        uf2_path = build_slot(item["slot"], item["app"], item["offset"], item["size"], job)
+        size_bytes = BOOT.app_usage_bytes(BOOT.read_uf2(uf2_path))
+        if size_bytes > item["size"]:
+            raise RuntimeError(f"slot {item['slot'] + 1} app exceeds its allocated region")
+        built.append((item["slot"], uf2_path))
+        if job:
+            done_percent = 5 + int(((step_index + 1) / total_steps) * 85)
+            job.update(done_percent, f"Built {item['app'].name}")
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     output_name = f"Pico-Eurorack-{device}-{timestamp}.uf2"
@@ -250,13 +364,56 @@ def generate_firmware(request: dict) -> tuple[Path, str]:
         DEFAULT_TARGET,
         "--cpu-hz",
         str(DEFAULT_CPU_HZ),
+        "--app-region-size",
+        str(APP_REGION_BYTES),
+        "--slot-padding",
+        "0",
         "--active",
         str(active),
     ]
     for index, uf2_path in built:
         cmd.extend(["--slot-app", f"{index}={uf2_path}"])
-    run_command(cmd)
+    if job:
+        job.update(92, "Packaging UF2")
+    run_command(cmd, job)
+    if job:
+        job.update(100, "Generated")
     return output_path, output_name
+
+
+def start_generate_job(payload: dict) -> BuildJob:
+    job = BuildJob(id=uuid.uuid4().hex)
+    with JOBS_LOCK:
+        JOBS[job.id] = job
+
+    def worker() -> None:
+        try:
+            output_path, output_name = generate_firmware(payload, job)
+            if job.cancel_requested:
+                job.status = "cancelled"
+                job.message = "Cancelled"
+                return
+            job.output_path = output_path
+            job.output_name = output_name
+            job.status = "done"
+            job.update(100, "Generated")
+        except BuildCancelled:
+            job.status = "cancelled"
+            job.message = "Cancelled"
+        except Exception as exc:
+            job.status = "error"
+            job.error = str(exc)
+            job.message = "Failed"
+
+    threading.Thread(target=worker, daemon=True).start()
+    return job
+
+
+def get_job(job_id: str | None) -> BuildJob | None:
+    if not job_id:
+        return None
+    with JOBS_LOCK:
+        return JOBS.get(job_id)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -270,6 +427,22 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/manifest":
             self.send_json(HTTPStatus.OK, manifest_payload())
+            return
+        if parsed.path == "/api/generate/status":
+            job_id = parse_qs(parsed.query).get("id", [""])[0]
+            job = get_job(job_id)
+            if not job:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "job not found"})
+                return
+            self.send_json(HTTPStatus.OK, job.snapshot())
+            return
+        if parsed.path == "/api/generate/download":
+            job_id = parse_qs(parsed.query).get("id", [""])[0]
+            job = get_job(job_id)
+            if not job or job.status != "done" or not job.output_path or not job.output_path.exists():
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "output not found"})
+                return
+            self.send_download(job.output_path, job.output_name or job.output_path.name)
             return
         if parsed.path == "/api/health":
             self.send_json(HTTPStatus.OK, {"ok": True})
@@ -285,22 +458,29 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path != "/api/generate":
-            self.send_error(HTTPStatus.NOT_FOUND)
+        if parsed.path == "/api/generate/start":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                job = start_generate_job(payload)
+                self.send_json(HTTPStatus.OK, job.snapshot())
+            except Exception as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length) or b"{}")
-            output_path, output_name = generate_firmware(payload)
-            data = output_path.read_bytes()
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Content-Disposition", f'attachment; filename="{output_name}"')
-            self.end_headers()
-            self.wfile.write(data)
-        except Exception as exc:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        if parsed.path == "/api/generate/cancel":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                job = get_job(payload.get("id"))
+                if not job:
+                    self.send_json(HTTPStatus.NOT_FOUND, {"error": "job not found"})
+                    return
+                job.cancel()
+                self.send_json(HTTPStatus.OK, job.snapshot())
+            except Exception as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
 
     def send_json(self, status: HTTPStatus, payload: dict) -> None:
         data = json.dumps(payload, indent=2).encode()
@@ -327,6 +507,15 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         if not head_only:
             self.wfile.write(data)
+
+    def send_download(self, path: Path, filename: str) -> None:
+        data = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(data)
 
     def guess_type(self, path: str) -> str:
         if path.endswith(".uf2"):

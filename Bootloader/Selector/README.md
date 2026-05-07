@@ -8,13 +8,15 @@ First-pass Pico SDK bootloader for the Bootloader/Apps layout.
 - `0x1003e000`: selector config copy A
 - `0x1003f000`: selector config copy B
 - `0x10040000`: first app slot
-- default slot size: `512KB`
+- packaged app slots are dynamic; each slot records its own flash offset and
+  max size in the manifest config
+- legacy fixed slot size fallback: `512KB`
 - default manifest app count: `6`
 - default Arduino-Pico vector offset inside each slot: `0x3000`
 
 The selector stores the active app, slot manifest, CPU frequency, and shared
 calibration values in the two config sectors. Future app builds must be linked
-at their slot address and must not use the bootloader/config sectors.
+at their manifest flash address and must not use the bootloader/config sectors.
 
 ## Controls
 
@@ -66,11 +68,14 @@ for the same chip family as the selector.
 
 ## Slot Build And Package
 
-Compile Arduino-Pico sketches for fixed slots with:
+Compile Arduino-Pico sketches for a dynamic slot by choosing a slot offset and
+slot size for that app:
 
 ```sh
 python3 Bootloader/Tools/pico_boot_apps.py slot-build Sketches/Pico/TripleOSC \
   --slot 0 \
+  --slot-offset 0x40000 \
+  --slot-size 0x1a000 \
   --fqbn 'rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=250' \
   --build-path /tmp/pico-bootapps-tripleosc-slot0 \
   --library Sketches/lib \
@@ -84,5 +89,11 @@ python3 Bootloader/Tools/pico_boot_apps.py package \
   --selector /tmp/pico-selector-build/pico_selector.uf2 \
   --app /tmp/pico-bootapps-tripleosc-slot0/TripleOSC.ino.uf2 \
   --output /tmp/pico-bootapps-bundle.uf2 \
-  --target rp2350
+  --target rp2350 \
+  --layout-json /tmp/pico-bootapps-layout.json
 ```
+
+By default, `package` reads each app UF2's linked flash address and writes that
+actual address plus the measured app size into the manifest, rounded to a 4KB
+sector with 16KB spare space. Use `--fixed-slots` only for older uniform slot
+bundles.

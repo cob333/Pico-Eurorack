@@ -26,7 +26,7 @@
 
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x100c0000, LENGTH = 524288
+    FLASH(rx) : ORIGIN = 0x10059000, LENGTH = 98304
     PSRAM(rwx) : ORIGIN = 0x11000000, LENGTH = 0
     RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 524288
     SCRATCH_X(rwx) : ORIGIN = 0x20080000, LENGTH = 4k
@@ -56,7 +56,7 @@ SECTIONS
         LONG(272621568)
         LONG(272621568)
         LONG(272621568)
-        LONG(524288)
+        LONG(98304)
     } > FLASH
 
     /* The bootrom will enter the image at the point indicated in your

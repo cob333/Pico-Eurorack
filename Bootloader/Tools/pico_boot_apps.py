@@ -31,6 +31,7 @@ PICO_SELECTOR_CONFIG_A_OFFSET = PICO_SELECTOR_BOOT_BYTES - (2 * 4096)
 PICO_SELECTOR_CONFIG_B_OFFSET = PICO_SELECTOR_BOOT_BYTES - 4096
 PICO_SELECTOR_FIRST_APP_OFFSET = PICO_SELECTOR_BOOT_BYTES
 PICO_SELECTOR_DEFAULT_SLOT_BYTES = 512 * 1024
+PICO_SELECTOR_DEFAULT_APP_REGION_BYTES = 3584 * 1024
 PICO_SELECTOR_ARDUINO_VECTOR_OFFSET = 0x3000
 PICO_SELECTOR_FLAG_VALID = 0x01
 PICO_SELECTOR_FLAG_RP2040 = 0x02
@@ -42,6 +43,7 @@ CONFIG_RECORD_SIZE = 216
 DEFAULT_CPU_HZ = 250_000_000
 DEFAULT_FQBN = "rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=250"
 UF2_TRAILING_MARKER_MAX_BYTES = UF2_PAYLOAD_SIZE
+DEFAULT_DYNAMIC_SLOT_PADDING = 0
 
 
 @dataclass
@@ -58,8 +60,24 @@ class SlotApp:
     path: Path
 
 
+@dataclass
+class SlotLayout:
+    slot: int
+    path: Path
+    blocks: list[Uf2Block]
+    flash_offset: int
+    max_size: int
+    used_size: int
+
+
 def int_arg(value: str) -> int:
     return int(value, 0)
+
+
+def align_up(value: int, alignment: int) -> int:
+    if alignment <= 0:
+        raise ValueError("alignment must be greater than zero")
+    return ((value + alignment - 1) // alignment) * alignment
 
 
 def slot_app_arg(value: str) -> SlotApp:
@@ -159,8 +177,8 @@ def read_u32(memory: dict[int, int], addr: int) -> int | None:
         return None
 
 
-def app_usage_bytes(blocks: list[Uf2Block]) -> int:
-    ranges = []
+def app_flash_ranges(blocks: list[Uf2Block]) -> list[tuple[int, int]]:
+    ranges: list[list[int]] = []
     for block in sorted((block for block in blocks if block.target >= XIP_BASE), key=lambda item: item.target):
         start = block.target
         end = block.target + len(block.payload)
@@ -170,19 +188,24 @@ def app_usage_bytes(blocks: list[Uf2Block]) -> int:
             ranges[-1][1] = max(ranges[-1][1], end)
 
     if not ranges:
-        return 0
+        return []
 
     if len(ranges) > 1 and ranges[-1][1] - ranges[-1][0] <= UF2_TRAILING_MARKER_MAX_BYTES:
         ranges.pop()
 
+    return [(start, end) for start, end in ranges]
+
+
+def app_flash_span(blocks: list[Uf2Block]) -> tuple[int, int]:
+    ranges = app_flash_ranges(blocks)
     if not ranges:
-        return 0
-    return max(end for _start, end in ranges) - min(start for start, _end in ranges)
+        return 0, 0
+    return min(start for start, _end in ranges), max(end for _start, end in ranges)
 
 
-def slot_usage_bytes(blocks: list[Uf2Block], slot_size: int) -> int:
-    del slot_size
-    return app_usage_bytes(blocks)
+def app_usage_bytes(blocks: list[Uf2Block]) -> int:
+    start, end = app_flash_span(blocks)
+    return end - start
 
 
 def validate_slot_app(
@@ -206,20 +229,16 @@ def validate_slot_app(
 def config_record(
     app_count: int,
     active: int,
-    slot_size: int,
-    vector_offset: int,
+    layouts: dict[int, SlotLayout],
     target_flag: int,
     sequence: int,
     cpu_hz: int,
-    valid_slots: set[int] | None = None,
 ) -> bytes:
     if not 0 <= active < app_count:
         raise ValueError("active app index is out of range")
     if app_count > PICO_SELECTOR_MAX_APPS:
         raise ValueError(f"only {PICO_SELECTOR_MAX_APPS} app slots are supported")
-    if valid_slots is None:
-        valid_slots = set(range(app_count))
-    if active not in valid_slots:
+    if active not in layouts:
         raise ValueError("active app slot is empty")
 
     record = bytearray(CONFIG_RECORD_SIZE)
@@ -252,15 +271,21 @@ def config_record(
     for index in range(PICO_SELECTOR_MAX_APPS):
         flags = 0
         app_id = 0
-        if index < app_count and index in valid_slots:
+        flash_offset = 0
+        max_size = 0
+        vector_offset = PICO_SELECTOR_ARDUINO_VECTOR_OFFSET
+        if index < app_count and index in layouts:
+            layout = layouts[index]
             flags = PICO_SELECTOR_FLAG_VALID | target_flag
             app_id = index + 1
+            flash_offset = layout.flash_offset
+            max_size = layout.max_size
         struct.pack_into(
             "<IIIII",
             record,
             52 + (index * 20),
-            PICO_SELECTOR_FIRST_APP_OFFSET + (index * slot_size),
-            slot_size,
+            flash_offset,
+            max_size,
             flags,
             app_id,
             vector_offset,
@@ -288,7 +313,11 @@ def sector_blocks(flash_offset: int, record: bytes, flags: int, family: int) -> 
 
 def build_slot(args: argparse.Namespace) -> None:
     script = Path(__file__).with_name("make_slot_memmap.py").resolve()
-    slot_offset = args.first_app_offset + (args.slot * args.slot_size)
+    slot_offset = (
+        args.slot_offset
+        if args.slot_offset is not None
+        else args.first_app_offset + (args.slot * args.slot_size)
+    )
     flash_origin = XIP_BASE + slot_offset
     recipe = (
         f'"{sys.executable}" -I "{script}" '
@@ -345,60 +374,117 @@ def package(args: argparse.Namespace) -> None:
         seen_slots.add(item.slot)
 
     app_blocks: list[Uf2Block] = []
+    layouts: dict[int, SlotLayout] = {}
     target_flag = PICO_SELECTOR_FLAG_RP2350 if args.target == "rp2350" else PICO_SELECTOR_FLAG_RP2040
+    region_end = args.first_app_offset + args.app_region_size
     for item in slot_apps:
         path = item.path
         blocks = read_uf2(path)
-        slot_offset = args.first_app_offset + (item.slot * args.slot_size)
-        validate_slot_app(path, blocks, slot_offset, args.slot_size, args.vector_offset)
-        used = slot_usage_bytes(blocks, args.slot_size)
-        if used > args.slot_size:
+        if args.fixed_slots:
+            slot_offset = args.first_app_offset + (item.slot * args.slot_size)
+            slot_size = args.slot_size
+        else:
+            span_start, span_end = app_flash_span(blocks)
+            if span_start < XIP_BASE:
+                raise ValueError(f"{path} does not contain flash payload blocks")
+            slot_offset = span_start - XIP_BASE
+            slot_size = align_up((span_end - span_start) + args.slot_padding, args.slot_align)
+        validate_slot_app(path, blocks, slot_offset, slot_size, args.vector_offset)
+        used = app_usage_bytes(blocks)
+        if used > slot_size:
             raise ValueError(
-                f"{path} uses {used} bytes and does not fit in a {args.slot_size} byte slot"
+                f"{path} uses {used} bytes and does not fit in a {slot_size} byte slot"
+            )
+        if slot_offset < args.first_app_offset:
+            raise ValueError(f"{path} starts before the app flash region")
+        if slot_offset + slot_size > region_end:
+            raise ValueError(
+                f"{path} ends at 0x{slot_offset + slot_size:x}, beyond app region end 0x{region_end:x}"
             )
         slot_base = XIP_BASE + slot_offset
-        slot_end = slot_base + args.slot_size
+        slot_end = slot_base + slot_size
+        for layout in layouts.values():
+            other_start = XIP_BASE + layout.flash_offset
+            other_end = other_start + layout.max_size
+            if slot_base < other_end and other_start < slot_end:
+                raise ValueError(f"{path} overlaps slot {layout.slot}")
+        layouts[item.slot] = SlotLayout(
+            slot=item.slot,
+            path=path,
+            blocks=blocks,
+            flash_offset=slot_offset,
+            max_size=slot_size,
+            used_size=used,
+        )
         app_blocks.extend(block for block in blocks if slot_base <= block.target < slot_end)
 
     app_count = max(seen_slots) + 1
     record_a = config_record(
         app_count,
         args.active,
-        args.slot_size,
-        args.vector_offset,
+        layouts,
         target_flag,
         1,
         args.cpu_hz,
-        seen_slots,
     )
     record_b = config_record(
         app_count,
         args.active,
-        args.slot_size,
-        args.vector_offset,
+        layouts,
         target_flag,
         2,
         args.cpu_hz,
-        seen_slots,
     )
     config_blocks = sector_blocks(PICO_SELECTOR_CONFIG_A_OFFSET, record_a, flags, family)
     config_blocks.extend(sector_blocks(PICO_SELECTOR_CONFIG_B_OFFSET, record_b, flags, family))
     write_uf2(args.output, [*selector_blocks, *app_blocks, *config_blocks])
+    if args.layout_json:
+        args.layout_json.parent.mkdir(parents=True, exist_ok=True)
+        args.layout_json.write_text(
+            json.dumps(
+                [
+                    {
+                        "slot": layout.slot,
+                        "path": str(layout.path),
+                        "flashOffset": layout.flash_offset,
+                        "flashOffsetHex": f"0x{layout.flash_offset:x}",
+                        "maxSize": layout.max_size,
+                        "maxSizeHex": f"0x{layout.max_size:x}",
+                        "usedSize": layout.used_size,
+                    }
+                    for layout in sorted(layouts.values(), key=lambda item: item.slot)
+                ],
+                indent=2,
+            )
+            + "\n"
+        )
 
 
 def measure(args: argparse.Namespace) -> None:
     rows = []
+    next_offset = args.first_app_offset
+    region_end = args.first_app_offset + args.app_region_size
     for path in args.uf2:
         blocks = read_uf2(path)
-        used = slot_usage_bytes(blocks, args.slot_size)
+        used = app_usage_bytes(blocks)
+        span_start, span_end = app_flash_span(blocks)
+        dynamic_size = align_up(used + args.slot_padding, args.slot_align)
         rows.append(
             {
                 "path": str(path),
+                "linkedFlashOffset": (span_start - XIP_BASE) if span_start >= XIP_BASE else None,
+                "linkedFlashOffsetHex": f"0x{span_start - XIP_BASE:x}" if span_start >= XIP_BASE else None,
                 "sizeBytes": used,
-                "slotBytes": args.slot_size,
-                "fitsSlot": used <= args.slot_size,
+                "dynamicSlotBytes": dynamic_size,
+                "dynamicSlotBytesHex": f"0x{dynamic_size:x}",
+                "appRegionBytes": args.app_region_size,
+                "fitsAppRegion": dynamic_size <= args.app_region_size,
+                "recommendedFlashOffset": next_offset,
+                "recommendedFlashOffsetHex": f"0x{next_offset:x}",
+                "recommendedFitsAppRegion": next_offset + dynamic_size <= region_end,
             }
         )
+        next_offset += dynamic_size
     print(json.dumps(rows, indent=2))
 
 
@@ -410,6 +496,7 @@ def main() -> None:
     slot.add_argument("sketch", type=Path)
     slot.add_argument("--slot", type=int, required=True)
     slot.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
+    slot.add_argument("--slot-offset", type=int_arg)
     slot.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
     slot.add_argument("--fqbn", default=DEFAULT_FQBN)
     slot.add_argument("--build-path", type=Path, required=True)
@@ -432,13 +519,26 @@ def main() -> None:
     pack.add_argument("--target", choices=("rp2040", "rp2350"), default="rp2350")
     pack.add_argument("--cpu-hz", type=int_arg, default=DEFAULT_CPU_HZ)
     pack.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
+    pack.add_argument(
+        "--fixed-slots",
+        action="store_true",
+        help="use legacy fixed slot offsets instead of reading each UF2's linked address",
+    )
+    pack.add_argument("--slot-padding", type=int_arg, default=DEFAULT_DYNAMIC_SLOT_PADDING)
+    pack.add_argument("--slot-align", type=int_arg, default=FLASH_SECTOR_SIZE)
+    pack.add_argument("--app-region-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_APP_REGION_BYTES)
     pack.add_argument("--vector-offset", type=int_arg, default=PICO_SELECTOR_ARDUINO_VECTOR_OFFSET)
     pack.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
+    pack.add_argument("--layout-json", type=Path)
     pack.set_defaults(func=package)
 
     measure_cmd = subparsers.add_parser("measure", help="report UF2 app flash usage")
     measure_cmd.add_argument("uf2", type=Path, nargs="+")
     measure_cmd.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
+    measure_cmd.add_argument("--slot-padding", type=int_arg, default=DEFAULT_DYNAMIC_SLOT_PADDING)
+    measure_cmd.add_argument("--slot-align", type=int_arg, default=FLASH_SECTOR_SIZE)
+    measure_cmd.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
+    measure_cmd.add_argument("--app-region-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_APP_REGION_BYTES)
     measure_cmd.set_defaults(func=measure)
 
     args = parser.parse_args()
