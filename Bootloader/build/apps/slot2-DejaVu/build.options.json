@@ -1,0 +1,9 @@
+{
+  "additionalFiles": "",
+  "compiler.optimization_flags": "",
+  "customBuildProperties": "recipe.hooks.linking.prelink.1.pattern=\"/Users/yangwenhaomac/.local/bin/python3\" -I \"/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/Tools/make_slot_memmap.py\" --input \"{runtime.platform.path}/lib/{build.chip}/memmap_default.ld\" --out \"{build.path}/memmap_default.ld\" --flash-origin 0x10140000 --flash-length 524288 --eeprom-start \"{build.eeprom_start}\" --fs-start \"{build.fs_start}\" --fs-end \"{build.fs_end}\" --ram-length \"{build.ram_length}\" --psram-length \"{build.psram_length}\"",
+  "fqbn": "rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=250",
+  "hardwareFolders": "/Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0,/Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0",
+  "otherLibrariesFolders": "/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Sketches/lib,/Users/yangwenhaomac/Documents/Arduino/libraries,/Users/yangwenhaomac/Documents/Arduino/libraries",
+  "sketchLocation": "/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Sketches/Pico/DejaVu"
+}

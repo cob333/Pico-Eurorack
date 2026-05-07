@@ -564,6 +564,13 @@
       white-space: nowrap;
     }
 
+    .slot-row:hover {
+      border-color: rgba(95, 99, 104, 0.28);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 10px 24px rgba(60, 60, 67, 0.1);
+      transform: translateY(-1px);
+    }
+
     .slot-row.drag-over {
       border-color: rgba(95, 99, 104, 0.38);
       background: rgba(255, 255, 255, 0.94);
@@ -579,7 +586,12 @@
     .slot-row.active {
       border-color: rgba(95, 99, 104, 0.42);
       background: var(--surface-solid);
-      box-shadow: inset 3px 0 0 var(--accent), 0 10px 24px rgba(60, 60, 67, 0.12);
+      box-shadow: 0 10px 24px rgba(60, 60, 67, 0.12), 0 0 0 3px rgba(95, 99, 104, 0.08);
+    }
+
+    .slot-row.active:hover {
+      border-color: rgba(95, 99, 104, 0.52);
+      box-shadow: 0 14px 30px rgba(60, 60, 67, 0.14), 0 0 0 3px rgba(95, 99, 104, 0.1);
     }
 
     .app-dragging .slot-row.drag-over,
@@ -613,6 +625,30 @@
       background: linear-gradient(180deg, #636366 0%, #3a3a3c 100%);
       font-weight: 700;
       font-size: 12px;
+    }
+
+    .slot-index.orange {
+      background: linear-gradient(180deg, #ff9f0a 0%, #c75f00 100%);
+    }
+
+    .slot-index.yellow {
+      background: linear-gradient(180deg, #ffd60a 0%, #c99a00 100%);
+    }
+
+    .slot-index.tiffany {
+      background: linear-gradient(180deg, #5de4d9 0%, #0abab5 100%);
+    }
+
+    .slot-index.aqua {
+      background: linear-gradient(180deg, #64d2ff 0%, #0096d6 100%);
+    }
+
+    .slot-index.blue {
+      background: linear-gradient(180deg, #5e9bff 0%, #2458d3 100%);
+    }
+
+    .slot-index.violet {
+      background: linear-gradient(180deg, #bf8cff 0%, #6c3ecf 100%);
     }
 
     .slot-size {
@@ -1167,6 +1203,7 @@
       AUX: { x: "50%", y: "84%", scale: 2.35 },
       OUT: { x: "50%", y: "91%", scale: 2.35 }
     };
+    const SLOT_COLOR_CLASSES = ["orange", "yellow", "tiffany", "aqua", "blue", "violet"];
 
     document.querySelectorAll("[data-device]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1257,8 +1294,9 @@
         const row = document.createElement("div");
         row.className = `slot-row${index === state.selectedSlot ? " active" : ""}`;
         row.draggable = Boolean(name);
+        const slotIndexClass = name ? SLOT_COLOR_CLASSES[index] : "empty";
         row.innerHTML = `
-          <div class="slot-index ${name ? "" : "empty"}">${index + 1}</div>
+          <div class="slot-index ${slotIndexClass}">${index + 1}</div>
           <strong class="${name ? "" : "slot-empty"}">${name || "Empty"}</strong>
           <span class="drag-handle" aria-hidden="true"></span>
           <span class="slot-size">${name ? "512KB" : "0KB"}</span>

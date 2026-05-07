@@ -1,0 +1,21 @@
+# ninja log v7
+1	19	1778118965473297494	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-mkdir	c3d1e582713fad14
+1	19	1778118965473297494	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-mkdir	c3d1e582713fad14
+20	31616	1778118997068412867	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-download	3ce5381208fff8bc
+20	31616	1778118997068412867	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-download	3ce5381208fff8bc
+31616	33210	1778118997070436833	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-update	2b137b5840887ee3
+31616	33210	1778118997070436833	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-update	2b137b5840887ee3
+33210	33229	1778118998682955131	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-patch	e5800da4c2b78b56
+33210	33229	1778118998682955131	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-patch	e5800da4c2b78b56
+33229	33244	1778118998697616714	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-configure	d31920ccbdd1b08b
+33229	33244	1778118998697616714	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-configure	d31920ccbdd1b08b
+33244	33273	1778118998725939397	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-build	d4691f8c2e7a2506
+33244	33273	1778118998725939397	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-build	d4691f8c2e7a2506
+33273	33311	1778118998761128838	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-install	5e6048f04a62d5e4
+33273	33311	1778118998761128838	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-install	5e6048f04a62d5e4
+33311	33394	1778118998846243177	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-test	6f54f4cafee2dbf3
+33311	33394	1778118998846243177	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-test	6f54f4cafee2dbf3
+33394	33456	1778118998909560804	CMakeFiles/picotool-populate-complete	4bac7d5e377afaf9
+33394	33456	1778118998909560804	picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-done	4bac7d5e377afaf9
+33394	33456	1778118998909560804	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/CMakeFiles/picotool-populate-complete	4bac7d5e377afaf9
+33394	33456	1778118998909560804	/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/_deps/picotool-subbuild/picotool-populate-prefix/src/picotool-populate-stamp/picotool-populate-done	4bac7d5e377afaf9

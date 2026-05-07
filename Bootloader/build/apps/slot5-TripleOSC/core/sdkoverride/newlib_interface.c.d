@@ -1,0 +1,31 @@
+/Users/yangwenhaomac/Desktop/Eurorack/2HP-Pico/Pico-Eurorack/Bootloader/build/apps/slot5-TripleOSC/core/sdkoverride/newlib_interface.c.o: \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0/cores/rp2040/sdkoverride/newlib_interface.c \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/common/pico_time/include/pico/time.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/common/pico_base_headers/include/pico.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/common/pico_base_headers/include/pico/types.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/common/pico_base_headers/include/pico/assert.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//include/rp2350/pico_base/pico/version.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/common/pico_base_headers/include/pico/config.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//include/rp2350/pico_base/pico/config_autogen.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0/cores/rp2040/../../pico-sdk/src/boards/include/boards/solderparty_rp2350_stamp_xl.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0/cores/rp2040/../../pico-sdk/src/rp2_common/cmsis/include/cmsis/rename_exceptions.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/pico_platform/include/pico/platform.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/pico_platform_compiler/include/pico/platform/compiler.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_regs/include/hardware/platform_defs.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/common/pico_base_headers/include/pico/types.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/pico_platform_sections/include/pico/platform/sections.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/pico_platform_panic/include/pico/platform/panic.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/pico_platform_common/include/pico/platform/common.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_regs/include/hardware/regs/addressmap.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_regs/include/hardware/regs/sio.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/common/pico_base_headers/include/pico/error.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/hardware_timer/include/hardware/timer.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_structs/include/hardware/structs/timer.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/hardware_base/include/hardware/address_mapped.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_structs/include/hardware/structs/accessctrl.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_regs/include/hardware/regs/accessctrl.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_regs/include/hardware/regs/timer.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2350/hardware_regs/include/hardware/regs/intctrl.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/pico_runtime_init/include/pico/runtime_init.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/pico_runtime/include/pico/runtime.h \
+ /Users/yangwenhaomac/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0//pico-sdk/src/rp2_common/pico_printf/include/pico/printf.h

@@ -1,0 +1,46 @@
+; Copyright 2026 Wenhao Yang
+;
+; Author: Wenhao Yang
+; Contributor: Wenhao Yang
+;
+; Minimal LSB-justified 16-bit stereo transmitter for the Pico-Eurorack
+; bootloader calibration DAC output.
+
+.program i2s_lsbj_out
+.side_set 2   ; bit 0 = BCLK, bit 1 = WS/LRCLK
+
+    mov x, y         side 0b01
+left_bits:
+    out pins, 1      side 0b10
+    jmp x--, left_bits side 0b11
+    out pins, 1      side 0b10
+
+    mov x, y         side 0b11
+right_bits:
+    out pins, 1      side 0b00
+    jmp x--, right_bits side 0b01
+    out pins, 1      side 0b00
+
+% c-sdk {
+static inline void i2s_lsbj_out_program_init(PIO pio, uint sm, uint offset,
+                                             uint data_pin,
+                                             uint clock_pin_base,
+                                             uint bits) {
+    pio_gpio_init(pio, data_pin);
+    pio_gpio_init(pio, clock_pin_base);
+    pio_gpio_init(pio, clock_pin_base + 1);
+
+    pio_sm_config c = i2s_lsbj_out_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, data_pin, 1);
+    sm_config_set_sideset_pins(&c, clock_pin_base);
+    sm_config_set_out_shift(&c, false, true, 2 * bits);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_consecutive_pindirs(pio, sm, data_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, clock_pin_base, 2, true);
+    pio_sm_set_set_pins(pio, sm, data_pin, 1);
+    pio_sm_set_set_pins(pio, sm, clock_pin_base, 2);
+    pio_sm_exec(pio, sm, pio_encode_set(pio_y, bits - 2));
+}
+%}

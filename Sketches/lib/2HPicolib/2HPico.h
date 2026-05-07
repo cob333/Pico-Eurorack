@@ -30,6 +30,7 @@
 
 #include "2HPico_io.h"
 #include "ClickButton.h"
+#include "PicoBootConfig.h"
 #include "scales.h"
 
 // for Adafruit Neopixels
@@ -93,6 +94,27 @@
 
 uint16_t pot[NUMPOTS]; // pot A/D readings
 bool potlock[NUMPOTS]; // when pots are locked it means they must change by MIN_POT_CHANGE to register
+
+static PicoBootCalibration picoBootCalibration;
+static bool picoBootCalibrationLoaded = PicoBootLoadCalibration(&picoBootCalibration);
+
+static inline float picoBootCv1CountsPerVolt(void) {
+  return picoBootCalibration.cv1_counts_per_volt;
+}
+
+static inline float picoBootCv2CountsPerVolt(void) {
+  return picoBootCalibration.cv2_counts_per_volt;
+}
+
+static inline float picoBootCvoutCountsPerVolt(void) {
+  return picoBootCalibration.cvout_counts_per_volt;
+}
+
+static inline uint32_t picoBootCpuHz(void) {
+  PicoBootConfig cfg;
+  if (PicoBootLoadConfig(&cfg)) return cfg.cpu_hz;
+  return 250000000u;
+}
 
 
 // sample the pots. potlock means apply hysteresis so we only change when the pot is moved significantly

@@ -23,7 +23,7 @@ UF2_FLAG_FAMILY_ID = 0x00002000
 XIP_BASE = 0x10000000
 
 PICO_SELECTOR_MAGIC = 0x50494253
-PICO_SELECTOR_VERSION = 2
+PICO_SELECTOR_VERSION = 4
 PICO_SELECTOR_MAX_APPS = 8
 PICO_SELECTOR_BOOT_BYTES = 256 * 1024
 PICO_SELECTOR_CONFIG_A_OFFSET = PICO_SELECTOR_BOOT_BYTES - (2 * 4096)
@@ -37,7 +37,9 @@ PICO_SELECTOR_FLAG_RP2350 = 0x04
 PICO_SELECTOR_FLAG_PICOFX = 0x08
 FLASH_SECTOR_SIZE = 4096
 UF2_PAYLOAD_SIZE = 256
-CONFIG_RECORD_SIZE = 212
+CONFIG_RECORD_SIZE = 216
+DEFAULT_CPU_HZ = 250_000_000
+DEFAULT_FQBN = "rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=250"
 
 
 @dataclass
@@ -157,7 +159,13 @@ def validate_slot_app(
 
 
 def config_record(
-    app_count: int, active: int, slot_size: int, vector_offset: int, target_flag: int, sequence: int
+    app_count: int,
+    active: int,
+    slot_size: int,
+    vector_offset: int,
+    target_flag: int,
+    sequence: int,
+    cpu_hz: int,
 ) -> bytes:
     if not 0 <= active < app_count:
         raise ValueError("active app index is out of range")
@@ -166,7 +174,7 @@ def config_record(
 
     record = bytearray(CONFIG_RECORD_SIZE)
     struct.pack_into(
-        "<IHHIBBH",
+        "<IHHIBBHI",
         record,
         0,
         PICO_SELECTOR_MAGIC,
@@ -176,8 +184,21 @@ def config_record(
         active,
         app_count,
         0,
+        cpu_hz,
     )
-    struct.pack_into("<8f", record, 16, 580.6, 580.6, 5456.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    struct.pack_into(
+        "<8f",
+        record,
+        20,
+        580.6,
+        580.6,
+        6553.4,
+        4095.0,
+        4095.0,
+        0.0,
+        0.0,
+        0.0,
+    )
     for index in range(PICO_SELECTOR_MAX_APPS):
         flags = 0
         app_id = 0
@@ -187,7 +208,7 @@ def config_record(
         struct.pack_into(
             "<IIIII",
             record,
-            48 + (index * 20),
+            52 + (index * 20),
             PICO_SELECTOR_FIRST_APP_OFFSET + (index * slot_size),
             slot_size,
             flags,
@@ -266,8 +287,12 @@ def package(args: argparse.Namespace) -> None:
         slot_end = slot_base + args.slot_size
         app_blocks.extend(block for block in blocks if slot_base <= block.target < slot_end)
 
-    record_a = config_record(len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 1)
-    record_b = config_record(len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 2)
+    record_a = config_record(
+        len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 1, args.cpu_hz
+    )
+    record_b = config_record(
+        len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 2, args.cpu_hz
+    )
     config_blocks = sector_blocks(PICO_SELECTOR_CONFIG_A_OFFSET, record_a, flags, family)
     config_blocks.extend(sector_blocks(PICO_SELECTOR_CONFIG_B_OFFSET, record_b, flags, family))
     write_uf2(args.output, [*selector_blocks, *app_blocks, *config_blocks])
@@ -282,7 +307,7 @@ def main() -> None:
     slot.add_argument("--slot", type=int, required=True)
     slot.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
     slot.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
-    slot.add_argument("--fqbn", required=True)
+    slot.add_argument("--fqbn", default=DEFAULT_FQBN)
     slot.add_argument("--build-path", type=Path, required=True)
     slot.add_argument("--library", action="append", default=[])
     slot.set_defaults(func=build_slot)
@@ -293,6 +318,7 @@ def main() -> None:
     pack.add_argument("--output", type=Path, required=True)
     pack.add_argument("--active", type=int, default=0)
     pack.add_argument("--target", choices=("rp2040", "rp2350"), default="rp2350")
+    pack.add_argument("--cpu-hz", type=int_arg, default=DEFAULT_CPU_HZ)
     pack.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
     pack.add_argument("--vector-offset", type=int_arg, default=PICO_SELECTOR_ARDUINO_VECTOR_OFFSET)
     pack.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)

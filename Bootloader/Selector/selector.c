@@ -6,15 +6,11 @@
 // Minimal Pico-Eurorack bootloader and app selector.
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
 #include "hardware/clocks.h"
-#include "hardware/flash.h"
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
-#include "hardware/sync.h"
 #include "hardware/watchdog.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -23,15 +19,19 @@
 #include "hardware/structs/scb.h"
 #endif
 
-#include "selector_config.h"
+#include "boot_config.h"
+#include "calibration.h"
 #include "ws2812.pio.h"
 
 #define PIN_BUTTON 2u
 #define PIN_LED 3u
 #define XIP_BASE_ADDR 0x10000000u
 #define SRAM_BASE_ADDR 0x20000000u
-#define SRAM_END_ADDR 0x20080000u
-#define APP_VECTOR_WORDS 2u
+#define SRAM_END_ADDR 0x20082000u
+#define HOLD_SELECT_MS 700u
+#define HOLD_CONFIRM_MS 900u
+#define HOLD_CALIBRATE_MS 3000u
+#define BOOT_GRACE_MS 600u
 
 typedef void (*AppEntry)(void);
 
@@ -39,116 +39,19 @@ static PIO led_pio = pio0;
 static uint led_sm = 0;
 static bool led_ready = false;
 
-static uint32_t fnv1a32(const void *data, size_t len) {
-  const uint8_t *p = (const uint8_t *)data;
-  uint32_t hash = 2166136261u;
-  for (size_t i = 0; i < len; ++i) {
-    hash ^= p[i];
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-static uint32_t config_crc(const PicoSelectorConfig *cfg) {
-  return fnv1a32(cfg, offsetof(PicoSelectorConfig, crc32));
-}
-
-static bool config_valid(const PicoSelectorConfig *cfg) {
-  if (cfg->magic != PICO_SELECTOR_MAGIC) return false;
-  if (cfg->version != PICO_SELECTOR_VERSION) return false;
-  if (cfg->record_size != sizeof(PicoSelectorConfig)) return false;
-  if (cfg->app_count == 0 || cfg->app_count > PICO_SELECTOR_MAX_APPS) return false;
-  if (cfg->active_app >= cfg->app_count) return false;
-  if (cfg->crc32 != config_crc(cfg)) return false;
-  return true;
-}
-
-static void config_defaults(PicoSelectorConfig *cfg) {
-  memset(cfg, 0, sizeof(*cfg));
-  cfg->magic = PICO_SELECTOR_MAGIC;
-  cfg->version = PICO_SELECTOR_VERSION;
-  cfg->record_size = sizeof(PicoSelectorConfig);
-  cfg->sequence = 1;
-  cfg->active_app = 0;
-  cfg->app_count = 4;
-  cfg->calibration.cv1_counts_per_volt = 580.6f;
-  cfg->calibration.cv2_counts_per_volt = 580.6f;
-  cfg->calibration.cvout_counts_per_volt = 5456.0f;
-
-#if PICO_SELECTOR_TARGET_RP2350
-  const uint32_t target_flag = PICO_SELECTOR_FLAG_RP2350;
-#else
-  const uint32_t target_flag = PICO_SELECTOR_FLAG_RP2040;
-#endif
-
-  for (uint8_t i = 0; i < cfg->app_count; ++i) {
-    cfg->apps[i].flash_offset = PICO_SELECTOR_FIRST_APP_OFFSET +
-                                ((uint32_t)i * PICO_SELECTOR_DEFAULT_SLOT_BYTES);
-    cfg->apps[i].max_size = PICO_SELECTOR_DEFAULT_SLOT_BYTES;
-    cfg->apps[i].flags = PICO_SELECTOR_FLAG_VALID | target_flag;
-    cfg->apps[i].app_id = i + 1u;
-    cfg->apps[i].vector_offset = PICO_SELECTOR_ARDUINO_VECTOR_OFFSET;
-  }
-  cfg->crc32 = config_crc(cfg);
-}
-
-static const PicoSelectorConfig *config_at(uint32_t flash_offset) {
-  return (const PicoSelectorConfig *)(XIP_BASE_ADDR + flash_offset);
-}
-
-static void config_load(PicoSelectorConfig *cfg) {
-  const PicoSelectorConfig *a = config_at(PICO_SELECTOR_CONFIG_A_OFFSET);
-  const PicoSelectorConfig *b = config_at(PICO_SELECTOR_CONFIG_B_OFFSET);
-  const bool av = config_valid(a);
-  const bool bv = config_valid(b);
-
-  if (av && (!bv || a->sequence >= b->sequence)) {
-    memcpy(cfg, a, sizeof(*cfg));
-  } else if (bv) {
-    memcpy(cfg, b, sizeof(*cfg));
-  } else {
-    config_defaults(cfg);
-  }
-}
-
-static void flash_write_sector(uint32_t flash_offset, const PicoSelectorConfig *cfg) {
-  uint8_t sector[FLASH_SECTOR_SIZE];
-  memset(sector, 0xff, sizeof(sector));
-  memcpy(sector, cfg, sizeof(*cfg));
-
-  const uint32_t ints = save_and_disable_interrupts();
-  multicore_reset_core1();
-  flash_range_erase(flash_offset, FLASH_SECTOR_SIZE);
-  flash_range_program(flash_offset, sector, FLASH_SECTOR_SIZE);
-  restore_interrupts(ints);
-}
-
-static void config_save(PicoSelectorConfig *cfg) {
-  cfg->magic = PICO_SELECTOR_MAGIC;
-  cfg->version = PICO_SELECTOR_VERSION;
-  cfg->record_size = sizeof(PicoSelectorConfig);
-  cfg->sequence++;
-  cfg->crc32 = 0;
-  cfg->crc32 = config_crc(cfg);
-
-  const PicoSelectorConfig *a = config_at(PICO_SELECTOR_CONFIG_A_OFFSET);
-  const PicoSelectorConfig *b = config_at(PICO_SELECTOR_CONFIG_B_OFFSET);
-  const bool av = config_valid(a);
-  const bool bv = config_valid(b);
-  const bool write_a = !av || (bv && b->sequence >= a->sequence);
-  flash_write_sector(write_a ? PICO_SELECTOR_CONFIG_A_OFFSET : PICO_SELECTOR_CONFIG_B_OFFSET, cfg);
-}
-
 static uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
   return ((uint32_t)g << 24) | ((uint32_t)r << 16) | ((uint32_t)b << 8);
 }
 
 static uint32_t app_color(uint8_t app) {
-  static const uint32_t colors[] = {
-      0x180000u, 0x181000u, 0x181800u, 0x001800u,
-      0x001818u, 0x000018u, 0x100018u, 0x181818u,
-  };
-  return colors[app & 7u];
+  switch (app % 6u) {
+    case 0: return rgb(24, 8, 0);
+    case 1: return rgb(24, 24, 0);
+    case 2: return rgb(0, 24, 8);
+    case 3: return rgb(0, 24, 24);
+    case 4: return rgb(0, 0, 24);
+    default: return rgb(24, 0, 24);
+  }
 }
 
 static void led_init(void) {
@@ -191,7 +94,7 @@ static bool wait_button_release(uint32_t timeout_ms) {
   return true;
 }
 
-static bool app_vector_valid(const PicoSelectorAppSlot *slot) {
+static bool app_vector_valid(const PicoBootAppSlot *slot) {
   const uint32_t vector_addr = XIP_BASE_ADDR + slot->flash_offset + slot->vector_offset;
   const uint32_t *vector = (const uint32_t *)vector_addr;
   const uint32_t sp = vector[0];
@@ -204,7 +107,18 @@ static bool app_vector_valid(const PicoSelectorAppSlot *slot) {
   return true;
 }
 
-static void jump_to_app(const PicoSelectorAppSlot *slot) {
+static bool slot_has_app(const PicoBootConfig *cfg, uint8_t app) {
+  if (app >= cfg->app_count) return false;
+  const PicoBootAppSlot *slot = &cfg->apps[app];
+  return (slot->flags & PICO_BOOT_FLAG_VALID) && app_vector_valid(slot);
+}
+
+static uint32_t selector_slot_color(const PicoBootConfig *cfg, uint8_t app) {
+  if (!slot_has_app(cfg, app)) return rgb(24, 24, 24);
+  return app_color(app);
+}
+
+static void jump_to_app(const PicoBootAppSlot *slot) {
   const uint32_t vector_addr = XIP_BASE_ADDR + slot->flash_offset + slot->vector_offset;
   const uint32_t *vector = (const uint32_t *)vector_addr;
   const uint32_t app_sp = vector[0];
@@ -230,31 +144,31 @@ static void jump_to_app(const PicoSelectorAppSlot *slot) {
   while (true) tight_loop_contents();
 }
 
-static bool select_app(PicoSelectorConfig *cfg) {
+static bool select_app(PicoBootConfig *cfg) {
   uint8_t selected = cfg->active_app;
   uint32_t pressed_ms = 0;
   uint32_t idle_ms = 0;
 
   led_blink(rgb(0, 0, 24), 2, 80, 80);
-  led_set(app_color(selected));
+  led_set(selector_slot_color(cfg, selected));
 
   while (true) {
     sleep_ms(10);
     if (button_pressed()) {
       pressed_ms += 10;
       idle_ms = 0;
-      if (pressed_ms >= PICO_SELECTOR_HOLD_CONFIRM_MS) {
+      if (pressed_ms >= HOLD_CONFIRM_MS) {
         cfg->active_app = selected;
-        config_save(cfg);
-        led_blink(app_color(selected), 3, 120, 80);
+        pico_boot_config_save(cfg);
+        led_blink(selector_slot_color(cfg, selected), 3, 120, 80);
         wait_button_release(2000);
         return true;
       }
     } else {
-      if (pressed_ms > 30 && pressed_ms < PICO_SELECTOR_HOLD_CONFIRM_MS) {
+      if (pressed_ms > 30 && pressed_ms < HOLD_CONFIRM_MS) {
         selected++;
         if (selected >= cfg->app_count) selected = 0;
-        led_set(app_color(selected));
+        led_set(selector_slot_color(cfg, selected));
       }
       pressed_ms = 0;
       idle_ms += 10;
@@ -263,25 +177,49 @@ static bool select_app(PicoSelectorConfig *cfg) {
   }
 }
 
+static void apply_cpu_frequency(const PicoBootConfig *cfg) {
+  if (cfg->cpu_hz >= 48000000u && cfg->cpu_hz <= 300000000u) {
+    set_sys_clock_khz(cfg->cpu_hz / 1000u, true);
+  }
+}
+
 int main(void) {
   button_init();
   led_init();
 
-  PicoSelectorConfig cfg;
-  config_load(&cfg);
+  PicoBootConfig cfg;
+  pico_boot_config_load(&cfg);
+  apply_cpu_frequency(&cfg);
 
   sleep_ms(30);
   bool enter_selector = false;
+  bool enter_calibration = false;
   if (button_pressed()) {
     uint32_t held_ms = 0;
-    while (button_pressed() && held_ms < PICO_SELECTOR_HOLD_SELECT_MS) {
-      led_set(rgb(0, 0, (held_ms / 80u) & 0x18u));
+    while (button_pressed() && held_ms < HOLD_CALIBRATE_MS) {
+      if (held_ms >= HOLD_SELECT_MS) {
+        led_set(rgb(18, 18, 0));
+      } else {
+        led_set(rgb(0, 0, (held_ms / 80u) & 0x18u));
+      }
       sleep_ms(10);
       held_ms += 10;
     }
-    enter_selector = held_ms >= PICO_SELECTOR_HOLD_SELECT_MS;
+    enter_calibration = held_ms >= HOLD_CALIBRATE_MS;
+    enter_selector = !enter_calibration && held_ms >= HOLD_SELECT_MS;
   } else {
-    sleep_ms(PICO_SELECTOR_BOOT_GRACE_MS);
+    sleep_ms(BOOT_GRACE_MS);
+  }
+
+  if (enter_calibration) {
+    const PicoBootCalibrationUi ui = {
+        .led_set = led_set,
+        .led_blink = led_blink,
+        .button_pressed = button_pressed,
+        .wait_button_release = wait_button_release,
+    };
+    (void)wait_button_release(2000);
+    (void)pico_boot_calibration_run(&cfg, &ui);
   }
 
   if (enter_selector) {
@@ -289,9 +227,9 @@ int main(void) {
   }
 
   if (cfg.active_app < cfg.app_count) {
-    const PicoSelectorAppSlot *slot = &cfg.apps[cfg.active_app];
-    if ((slot->flags & PICO_SELECTOR_FLAG_VALID) && app_vector_valid(slot)) {
-      led_blink(app_color(cfg.active_app), 1, 80, 30);
+    const PicoBootAppSlot *slot = &cfg.apps[cfg.active_app];
+    if ((slot->flags & PICO_BOOT_FLAG_VALID) && app_vector_valid(slot)) {
+      led_blink(rgb(0, 24, 0), 3, 90, 70);
       jump_to_app(slot);
     }
   }

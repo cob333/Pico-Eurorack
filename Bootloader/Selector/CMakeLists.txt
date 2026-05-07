@@ -20,24 +20,31 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 add_executable(pico_selector
+  ${CMAKE_CURRENT_LIST_DIR}/../boot_config.c
+  ${CMAKE_CURRENT_LIST_DIR}/../Calibration/calibration.c
   selector.c
 )
+set_target_properties(pico_selector PROPERTIES OUTPUT_NAME Pico_Firmware)
 
 pico_generate_pio_header(pico_selector ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
+pico_generate_pio_header(pico_selector ${CMAKE_CURRENT_LIST_DIR}/../Calibration/i2s_lsbj.pio)
 
 target_include_directories(pico_selector PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/..
+  ${CMAKE_CURRENT_LIST_DIR}/../Calibration
   ${CMAKE_CURRENT_LIST_DIR}
 )
 
 if(PICO_PLATFORM MATCHES "rp2350")
-  target_compile_definitions(pico_selector PRIVATE PICO_SELECTOR_TARGET_RP2350=1)
+  target_compile_definitions(pico_selector PRIVATE PICO_BOOT_TARGET_RP2350=1)
 else()
-  target_compile_definitions(pico_selector PRIVATE PICO_SELECTOR_TARGET_RP2040=1)
+  target_compile_definitions(pico_selector PRIVATE PICO_BOOT_TARGET_RP2040=1)
 endif()
 
 target_link_libraries(pico_selector PRIVATE
   pico_stdlib
   pico_multicore
+  hardware_adc
   hardware_flash
   hardware_pio
   hardware_sync
