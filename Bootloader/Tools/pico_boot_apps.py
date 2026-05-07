@@ -7,6 +7,7 @@
 # Build slot-linked apps and package them with the Pico-Eurorack selector.
 
 import argparse
+import json
 import os
 import struct
 import subprocess
@@ -40,6 +41,7 @@ UF2_PAYLOAD_SIZE = 256
 CONFIG_RECORD_SIZE = 216
 DEFAULT_CPU_HZ = 250_000_000
 DEFAULT_FQBN = "rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=250"
+UF2_TRAILING_MARKER_MAX_BYTES = UF2_PAYLOAD_SIZE
 
 
 @dataclass
@@ -50,8 +52,25 @@ class Uf2Block:
     family: int
 
 
+@dataclass(frozen=True)
+class SlotApp:
+    slot: int
+    path: Path
+
+
 def int_arg(value: str) -> int:
     return int(value, 0)
+
+
+def slot_app_arg(value: str) -> SlotApp:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("slot app must use SLOT=PATH")
+    slot_text, path_text = value.split("=", 1)
+    try:
+        slot = int(slot_text, 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid slot index: {slot_text}") from exc
+    return SlotApp(slot=slot, path=Path(path_text))
 
 
 def fnv1a32(data: bytes) -> int:
@@ -140,6 +159,32 @@ def read_u32(memory: dict[int, int], addr: int) -> int | None:
         return None
 
 
+def app_usage_bytes(blocks: list[Uf2Block]) -> int:
+    ranges = []
+    for block in sorted((block for block in blocks if block.target >= XIP_BASE), key=lambda item: item.target):
+        start = block.target
+        end = block.target + len(block.payload)
+        if not ranges or start > ranges[-1][1]:
+            ranges.append([start, end])
+        else:
+            ranges[-1][1] = max(ranges[-1][1], end)
+
+    if not ranges:
+        return 0
+
+    if len(ranges) > 1 and ranges[-1][1] - ranges[-1][0] <= UF2_TRAILING_MARKER_MAX_BYTES:
+        ranges.pop()
+
+    if not ranges:
+        return 0
+    return max(end for _start, end in ranges) - min(start for start, _end in ranges)
+
+
+def slot_usage_bytes(blocks: list[Uf2Block], slot_size: int) -> int:
+    del slot_size
+    return app_usage_bytes(blocks)
+
+
 def validate_slot_app(
     path: Path, blocks: list[Uf2Block], slot_offset: int, slot_size: int, vector_offset: int
 ) -> None:
@@ -166,11 +211,16 @@ def config_record(
     target_flag: int,
     sequence: int,
     cpu_hz: int,
+    valid_slots: set[int] | None = None,
 ) -> bytes:
     if not 0 <= active < app_count:
         raise ValueError("active app index is out of range")
     if app_count > PICO_SELECTOR_MAX_APPS:
         raise ValueError(f"only {PICO_SELECTOR_MAX_APPS} app slots are supported")
+    if valid_slots is None:
+        valid_slots = set(range(app_count))
+    if active not in valid_slots:
+        raise ValueError("active app slot is empty")
 
     record = bytearray(CONFIG_RECORD_SIZE)
     struct.pack_into(
@@ -202,7 +252,7 @@ def config_record(
     for index in range(PICO_SELECTOR_MAX_APPS):
         flags = 0
         app_id = 0
-        if index < app_count:
+        if index < app_count and index in valid_slots:
             flags = PICO_SELECTOR_FLAG_VALID | target_flag
             app_id = index + 1
         struct.pack_into(
@@ -277,25 +327,79 @@ def package(args: argparse.Namespace) -> None:
     if not flags:
         raise ValueError(f"{args.selector} does not contain a UF2 family id")
 
+    if args.app and args.slot_app:
+        raise ValueError("use either --app or --slot-app, not both")
+    if args.slot_app:
+        slot_apps = sorted(args.slot_app, key=lambda item: item.slot)
+    elif args.app:
+        slot_apps = [SlotApp(slot=index, path=path) for index, path in enumerate(args.app)]
+    else:
+        raise ValueError("at least one --app or --slot-app is required")
+
+    seen_slots: set[int] = set()
+    for item in slot_apps:
+        if not 0 <= item.slot < PICO_SELECTOR_MAX_APPS:
+            raise ValueError(f"slot {item.slot} is out of range")
+        if item.slot in seen_slots:
+            raise ValueError(f"slot {item.slot} is specified more than once")
+        seen_slots.add(item.slot)
+
     app_blocks: list[Uf2Block] = []
     target_flag = PICO_SELECTOR_FLAG_RP2350 if args.target == "rp2350" else PICO_SELECTOR_FLAG_RP2040
-    for index, path in enumerate(args.app):
+    for item in slot_apps:
+        path = item.path
         blocks = read_uf2(path)
-        slot_offset = args.first_app_offset + (index * args.slot_size)
+        slot_offset = args.first_app_offset + (item.slot * args.slot_size)
         validate_slot_app(path, blocks, slot_offset, args.slot_size, args.vector_offset)
+        used = slot_usage_bytes(blocks, args.slot_size)
+        if used > args.slot_size:
+            raise ValueError(
+                f"{path} uses {used} bytes and does not fit in a {args.slot_size} byte slot"
+            )
         slot_base = XIP_BASE + slot_offset
         slot_end = slot_base + args.slot_size
         app_blocks.extend(block for block in blocks if slot_base <= block.target < slot_end)
 
+    app_count = max(seen_slots) + 1
     record_a = config_record(
-        len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 1, args.cpu_hz
+        app_count,
+        args.active,
+        args.slot_size,
+        args.vector_offset,
+        target_flag,
+        1,
+        args.cpu_hz,
+        seen_slots,
     )
     record_b = config_record(
-        len(args.app), args.active, args.slot_size, args.vector_offset, target_flag, 2, args.cpu_hz
+        app_count,
+        args.active,
+        args.slot_size,
+        args.vector_offset,
+        target_flag,
+        2,
+        args.cpu_hz,
+        seen_slots,
     )
     config_blocks = sector_blocks(PICO_SELECTOR_CONFIG_A_OFFSET, record_a, flags, family)
     config_blocks.extend(sector_blocks(PICO_SELECTOR_CONFIG_B_OFFSET, record_b, flags, family))
     write_uf2(args.output, [*selector_blocks, *app_blocks, *config_blocks])
+
+
+def measure(args: argparse.Namespace) -> None:
+    rows = []
+    for path in args.uf2:
+        blocks = read_uf2(path)
+        used = slot_usage_bytes(blocks, args.slot_size)
+        rows.append(
+            {
+                "path": str(path),
+                "sizeBytes": used,
+                "slotBytes": args.slot_size,
+                "fitsSlot": used <= args.slot_size,
+            }
+        )
+    print(json.dumps(rows, indent=2))
 
 
 def main() -> None:
@@ -314,7 +418,15 @@ def main() -> None:
 
     pack = subparsers.add_parser("package", help="combine selector and slot-linked app UF2 files")
     pack.add_argument("--selector", type=Path, required=True)
-    pack.add_argument("--app", type=Path, action="append", required=True)
+    pack.add_argument("--app", type=Path, action="append", default=[])
+    pack.add_argument(
+        "--slot-app",
+        type=slot_app_arg,
+        action="append",
+        default=[],
+        metavar="SLOT=UF2",
+        help="add a slot-linked UF2 at a physical selector slot",
+    )
     pack.add_argument("--output", type=Path, required=True)
     pack.add_argument("--active", type=int, default=0)
     pack.add_argument("--target", choices=("rp2040", "rp2350"), default="rp2350")
@@ -323,6 +435,11 @@ def main() -> None:
     pack.add_argument("--vector-offset", type=int_arg, default=PICO_SELECTOR_ARDUINO_VECTOR_OFFSET)
     pack.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
     pack.set_defaults(func=package)
+
+    measure_cmd = subparsers.add_parser("measure", help="report UF2 app flash usage")
+    measure_cmd.add_argument("uf2", type=Path, nargs="+")
+    measure_cmd.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
+    measure_cmd.set_defaults(func=measure)
 
     args = parser.parse_args()
     args.func(args)

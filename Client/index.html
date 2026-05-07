@@ -149,6 +149,18 @@
       gap: 10px;
     }
 
+    .status-chip {
+      min-width: 92px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .status-chip.error {
+      color: var(--danger);
+    }
+
     .generate-button {
       border: 0;
       border-radius: 999px;
@@ -159,6 +171,13 @@
       font-weight: 500;
       box-shadow: 0 8px 20px rgba(60, 60, 67, 0.22);
       transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease, background 0.18s ease;
+    }
+
+    .generate-button:disabled {
+      cursor: wait;
+      opacity: 0.68;
+      transform: none;
+      box-shadow: none;
     }
 
     .generate-button:hover,
@@ -542,7 +561,7 @@
 
     .slot-row {
       display: grid;
-      grid-template-columns: 26px minmax(0, 1fr) 18px;
+      grid-template-columns: 26px minmax(0, 1fr) auto 18px;
       gap: 7px;
       align-items: center;
       min-height: 42px;
@@ -650,7 +669,10 @@
     }
 
     .slot-size {
-      display: none;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      justify-self: end;
     }
 
     .drag-handle {
@@ -907,6 +929,12 @@
         flex-wrap: wrap;
       }
 
+      .status-chip {
+        order: 3;
+        width: 100%;
+        text-align: left;
+      }
+
       .generate-button {
         flex: none;
       }
@@ -965,7 +993,7 @@
       }
 
       .slot-row {
-        grid-template-columns: 28px minmax(0, 1fr) 18px;
+        grid-template-columns: 28px minmax(0, 1fr) auto 18px;
       }
 
       .selected-title h2 {
@@ -985,7 +1013,8 @@
           </div>
         </div>
         <div class="top-actions">
-          <button class="generate-button" type="button">Generate</button>
+          <span class="status-chip" id="generationStatus">Local mode</span>
+          <button class="generate-button" id="generateButton" type="button">Generate</button>
           <div class="device-switch" aria-label="Device Switch">
             <button type="button" data-device="pico">Pico</button>
             <button type="button" data-device="picofx">PicoFX</button>
@@ -1188,14 +1217,21 @@
     const usageLabel = document.getElementById("usageLabel");
     const slotTrash = document.getElementById("slotTrash");
     const clearAllSlots = document.getElementById("clearAllSlots");
+    const generateButton = document.getElementById("generateButton");
+    const generationStatus = document.getElementById("generationStatus");
     const functionList = document.getElementById("functionList");
     const modulePreview = document.querySelector(".module");
     const DRAG_TYPE = {
       app: "application/x-app-index",
       slot: "application/x-slot-index"
     };
-    const SLOT_SIZE_KB = 512;
-    const TOTAL_SIZE_KB = 4096;
+    const DEFAULT_SLOT_BYTES = 512 * 1024;
+    const apiState = {
+      available: false,
+      slotBytes: DEFAULT_SLOT_BYTES,
+      maxSlots: 6,
+      appsByName: new Map()
+    };
     const PANEL_FOCUS = {
       IN: { x: "50%", y: "17%", scale: 2.4 },
       PAGE: { x: "50%", y: "27%", scale: 2.35 },
@@ -1207,6 +1243,8 @@
       OUT: { x: "50%", y: "91%", scale: 2.35 }
     };
     const SLOT_COLOR_CLASSES = ["orange", "yellow", "tiffany", "aqua", "blue", "violet"];
+
+    generateButton.addEventListener("click", generateFirmware);
 
     document.querySelectorAll("[data-device]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1242,6 +1280,42 @@
       return appData.pages[Math.min(state.selectedPage, appData.pages.length - 1)];
     }
 
+    async function loadManifest() {
+      try {
+        const response = await fetch("/api/manifest", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
+        const manifest = await response.json();
+        apiState.available = true;
+        apiState.slotBytes = manifest.slotBytes || DEFAULT_SLOT_BYTES;
+        apiState.maxSlots = manifest.maxSlots || 6;
+        apiState.appsByName = new Map(manifest.apps.map((item) => [item.name, item]));
+        hydrateAppMetadata();
+        setStatus("Ready");
+      } catch (_error) {
+        apiState.available = false;
+        hydrateAppMetadata();
+        setStatus("API offline", true);
+      }
+      render();
+    }
+
+    function hydrateAppMetadata() {
+      Object.values(DATA).forEach((device) => {
+        device.apps.forEach((item) => {
+          const meta = apiState.appsByName.get(item.name);
+          item.id = meta?.id || item.name;
+          item.sizeBytes = Number.isFinite(meta?.sizeBytes) ? meta.sizeBytes : null;
+          item.slotBytes = meta?.slotBytes || apiState.slotBytes;
+          item.fitsSlot = meta?.fitsSlot;
+        });
+      });
+    }
+
+    function setStatus(message, isError = false) {
+      generationStatus.textContent = message;
+      generationStatus.classList.toggle("error", isError);
+    }
+
     function render() {
       const device = currentDevice();
       document.getElementById("panelImage").src = device.image;
@@ -1269,7 +1343,7 @@
         button.type = "button";
         button.className = `app-card${index === state.selectedApp ? " active" : ""}`;
         button.draggable = true;
-        button.innerHTML = `<strong>${item.name}</strong><span>${item.description}</span>`;
+        button.innerHTML = `<strong>${item.name}</strong><span>${item.description} · ${appSizeLabel(item)}</span>`;
         button.addEventListener("dragstart", (event) => {
           event.dataTransfer.setData(DRAG_TYPE.app, String(index));
           event.dataTransfer.effectAllowed = "copy";
@@ -1294,6 +1368,7 @@
     function renderSlots() {
       slots.innerHTML = "";
       state.slots.forEach((name, index) => {
+        const appData = appByName(name);
         const row = document.createElement("div");
         row.className = `slot-row${index === state.selectedSlot ? " active" : ""}`;
         row.draggable = Boolean(name);
@@ -1301,8 +1376,8 @@
         row.innerHTML = `
           <div class="slot-index ${slotIndexClass}">${index + 1}</div>
           <strong class="${name ? "" : "slot-empty"}">${name || "Empty"}</strong>
+          <span class="slot-size">${appData ? appSizeLabel(appData) : "0KB"}</span>
           <span class="drag-handle" aria-hidden="true"></span>
-          <span class="slot-size">${name ? "512KB" : "0KB"}</span>
         `;
         row.addEventListener("dragstart", (event) => {
           if (!name) {
@@ -1384,6 +1459,16 @@
       state.selectedPage = 0;
     }
 
+    function appByName(name) {
+      return currentDevice().apps.find((item) => item.name === name);
+    }
+
+    function appSizeLabel(appData) {
+      if (!appData || !Number.isFinite(appData.sizeBytes)) return "Build";
+      const suffix = appData.fitsSlot === false ? " > slot" : "";
+      return `${formatCapacityBytes(appData.sizeBytes)}${suffix}`;
+    }
+
     function beginDrag(kind, element) {
       clearDragState();
       element.classList.add("dragging");
@@ -1449,13 +1534,21 @@
     });
 
     function renderCapacityUsage() {
-      const usedKb = state.slots.filter(Boolean).length * SLOT_SIZE_KB;
-      const percent = Math.round((usedKb / TOTAL_SIZE_KB) * 100);
+      const selectedApps = state.slots.map(appByName).filter(Boolean);
+      const knownBytes = selectedApps.reduce((total, item) => {
+        return total + (Number.isFinite(item.sizeBytes) ? item.sizeBytes : 0);
+      }, 0);
+      const unknownCount = selectedApps.filter((item) => !Number.isFinite(item.sizeBytes)).length;
+      const totalBytes = state.slots.length * apiState.slotBytes;
+      const reservedBytes = selectedApps.length * apiState.slotBytes;
+      const percent = totalBytes ? Math.min(100, Math.round((knownBytes / totalBytes) * 100)) : 0;
       usageFill.style.width = `${percent}%`;
-      usageLabel.textContent = `${formatCapacity(usedKb)} / 4MB · ${percent}%`;
+      usageLabel.textContent = `${formatCapacityBytes(knownBytes)} / ${formatCapacityBytes(totalBytes)} · ${formatCapacityBytes(reservedBytes)} reserved${unknownCount ? ` · ${unknownCount} build` : ""}`;
     }
 
-    function formatCapacity(kb) {
+    function formatCapacityBytes(bytes) {
+      if (!Number.isFinite(bytes)) return "Build";
+      const kb = Math.ceil(bytes / 1024);
       return kb >= 1024 ? `${Number((kb / 1024).toFixed(1))}MB` : `${kb}KB`;
     }
 
@@ -1463,7 +1556,7 @@
       const appData = currentApp();
       const pageData = currentPage();
       document.getElementById("selectedName").textContent = appData.name;
-      document.getElementById("selectedDescription").textContent = appData.description;
+      document.getElementById("selectedDescription").textContent = `${appData.description} · ${appSizeLabel(appData)} slot use`;
       pageTabs.innerHTML = "";
       appData.pages.forEach((pageItem, index) => {
         const button = document.createElement("button");
@@ -1535,7 +1628,68 @@
       modulePreview.style.setProperty("--focus-scale", 1);
     }
 
-    render();
+    async function generateFirmware() {
+      if (!apiState.available) {
+        setStatus("Start server.py", true);
+        return;
+      }
+
+      const slotIds = state.slots.map((name) => {
+        const appData = appByName(name);
+        return appData ? appData.id : "";
+      });
+      if (!slotIds.some(Boolean)) {
+        setStatus("No slots", true);
+        return;
+      }
+      const oversized = state.slots.map(appByName).find((item) => item?.fitsSlot === false);
+      if (oversized) {
+        setStatus(`${oversized.name} too large`, true);
+        return;
+      }
+
+      generateButton.disabled = true;
+      setStatus("Building...");
+      try {
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            device: state.device,
+            slots: slotIds,
+            active: state.selectedSlot
+          })
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || `Generate HTTP ${response.status}`);
+        }
+        const blob = await response.blob();
+        const filename = filenameFromDisposition(response.headers.get("Content-Disposition"))
+          || `Pico-Eurorack-${state.device}.uf2`;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setStatus("Generated");
+      } catch (error) {
+        setStatus(error.message || "Generate failed", true);
+      } finally {
+        generateButton.disabled = false;
+      }
+    }
+
+    function filenameFromDisposition(header) {
+      if (!header) return "";
+      const match = header.match(/filename="([^"]+)"/);
+      return match ? match[1] : "";
+    }
+
+    loadManifest();
   </script>
 </body>
 </html>
