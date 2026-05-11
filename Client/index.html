@@ -497,18 +497,28 @@
       padding-right: 4px;
     }
 
-    .app-card {
+    .app-card-wrap {
+      position: relative;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .app-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 4px 10px;
       border: 1px solid rgba(60, 60, 67, 0.12);
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.7);
-      padding: 11px 12px;
+      padding: 11px 40px 11px 12px;
       text-align: left;
       user-select: none;
       will-change: transform;
       transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
+    }
+
+    .app-card-wrap.has-sample-settings .app-card {
+      padding-right: 90px;
     }
 
     .app-card:hover {
@@ -538,7 +548,8 @@
     }
 
     .app-card strong {
-      font-size: 14px;
+      font-size: 16px;
+      line-height: 1.18;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -547,15 +558,15 @@
 
     .app-card span {
       color: var(--muted);
-      font-size: 12px;
-      line-height: 1.42;
-      grid-column: 1 / -1;
+      font-size: 13px;
+      line-height: 1.48;
     }
 
     .app-card::after {
       content: "";
-      justify-self: end;
-      align-self: start;
+      position: absolute;
+      top: 13px;
+      right: 12px;
       width: 18px;
       height: 18px;
       border-radius: 6px;
@@ -566,6 +577,30 @@
     .app-card.active::after {
       background:
         radial-gradient(circle, var(--accent) 1.4px, transparent 1.6px) 2px 2px / 7px 7px;
+    }
+
+    .sample-settings {
+      position: absolute;
+      top: 9px;
+      right: 40px;
+      z-index: 2;
+      min-height: 26px;
+      border: 1px solid rgba(60, 60, 67, 0.14);
+      border-radius: 999px;
+      padding: 0 9px;
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 500;
+      transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+    }
+
+    .sample-settings:hover,
+    .sample-settings:focus-visible {
+      border-color: rgba(95, 99, 104, 0.38);
+      background: #ffffff;
+      transform: translateY(-1px);
+      outline: none;
     }
 
     .app-card.in-slot::after {
@@ -589,6 +624,186 @@
       background: var(--surface-soft);
       text-align: center;
       font-size: 13px;
+    }
+
+    .sample-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: none;
+      place-items: center;
+      padding: 24px;
+      background: rgba(245, 245, 247, 0.78);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+
+    .sample-modal.open {
+      display: grid;
+    }
+
+    .sample-dialog {
+      width: min(760px, 100%);
+      max-height: min(760px, calc(100vh - 48px));
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      border: 1px solid rgba(60, 60, 67, 0.14);
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.16);
+    }
+
+    .sample-dialog-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px;
+      border-bottom: 1px solid rgba(60, 60, 67, 0.12);
+    }
+
+    .sample-dialog-head h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .sample-dialog-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .sample-close {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(60, 60, 67, 0.16);
+      border-radius: 50%;
+      background: #ffffff;
+      color: var(--ink);
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .sample-uploader {
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.4fr);
+      gap: 10px;
+      padding: 16px 20px;
+      border-top: 1px solid rgba(60, 60, 67, 0.12);
+      background: rgba(250, 250, 252, 0.86);
+    }
+
+    .sample-uploader input {
+      min-height: 38px;
+      min-width: 0;
+      border: 1px solid rgba(60, 60, 67, 0.14);
+      border-radius: 10px;
+      padding: 0 10px;
+      background: #ffffff;
+    }
+
+    .sample-upload-button {
+      grid-column: 1 / -1;
+      min-height: 40px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 16px;
+      background: #1d1d1f;
+      color: #ffffff;
+      font-weight: 500;
+    }
+
+    .sample-upload-button:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+    }
+
+    .sample-content {
+      min-height: 0;
+      overflow: auto;
+      padding: 18px 20px 20px;
+    }
+
+    .sample-status {
+      min-height: 20px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .sample-status.error {
+      color: var(--danger);
+    }
+
+    .sample-bank-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .sample-bank {
+      border: 1px solid rgba(60, 60, 67, 0.12);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(250, 250, 252, 0.78);
+    }
+
+    .sample-bank-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .sample-bank-title {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .sample-bank-head strong {
+      font-size: 15px;
+    }
+
+    .sample-bank-head span,
+    .sample-file-list {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .sample-file-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      line-height: 1.4;
+    }
+
+    .sample-file-pill {
+      border: 1px solid rgba(60, 60, 67, 0.12);
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #ffffff;
+    }
+
+    .sample-delete-bank {
+      border: 1px solid rgba(215, 0, 21, 0.18);
+      border-radius: 999px;
+      min-height: 26px;
+      padding: 0 10px;
+      background: rgba(255, 59, 48, 0.08);
+      color: var(--danger);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .sample-delete-bank:hover,
+    .sample-delete-bank:focus-visible {
+      border-color: rgba(215, 0, 21, 0.36);
+      background: #ffe7ea;
+      outline: none;
     }
 
     .slots {
@@ -1225,8 +1440,9 @@
     </section>
     <div class="footer-reveal-space" id="footerRevealSpace" aria-hidden="true"></div>
     <footer class="site-footer">
+      <span>This client is built upon https://github.com/rheslip/2HPico-Eurorack-Module-Hardware.</span>
+      <span>Original author: Rich Heslip</span>
       <img src="../images/fm.synth.jpg" alt="by fm.synth">
-      <span>enjoy &lt;3</span>
     </footer>
     <div class="build-overlay" id="buildOverlay" aria-live="polite" aria-label="Build progress">
       <div class="build-progress">
@@ -1240,6 +1456,26 @@
           </div>
           <button class="build-cancel" id="buildCancel" type="button" aria-label="Cancel build">&times;</button>
         </div>
+      </div>
+    </div>
+    <div class="sample-modal" id="sampleModal" aria-hidden="true">
+      <div class="sample-dialog" role="dialog" aria-modal="true" aria-labelledby="sampleTitle">
+        <div class="sample-dialog-head">
+          <div>
+            <h2 id="sampleTitle">Samples</h2>
+            <p id="sampleSubtitle"></p>
+          </div>
+          <button class="sample-close" id="sampleClose" type="button" aria-label="Close samples">&times;</button>
+        </div>
+        <div class="sample-content">
+          <div class="sample-status" id="sampleStatus"></div>
+          <div class="sample-bank-list" id="sampleBankList"></div>
+        </div>
+        <form class="sample-uploader" id="sampleUploadForm">
+          <input id="sampleBankName" type="text" placeholder="New Bank" aria-label="New Bank">
+          <input id="sampleFiles" type="file" accept=".wav,audio/wav,audio/x-wav" multiple aria-label="WAV files">
+          <button class="sample-upload-button" id="sampleUploadButton" type="submit">Upload</button>
+        </form>
       </div>
     </div>
   </div>
@@ -1396,9 +1632,29 @@
     const footerRevealSpace = document.getElementById("footerRevealSpace");
     const functionList = document.getElementById("functionList");
     const modulePreview = document.querySelector(".module");
+    const sampleModal = document.getElementById("sampleModal");
+    const sampleTitle = document.getElementById("sampleTitle");
+    const sampleSubtitle = document.getElementById("sampleSubtitle");
+    const sampleClose = document.getElementById("sampleClose");
+    const sampleUploadForm = document.getElementById("sampleUploadForm");
+    const sampleBankName = document.getElementById("sampleBankName");
+    const sampleFiles = document.getElementById("sampleFiles");
+    const sampleUploadButton = document.getElementById("sampleUploadButton");
+    const sampleStatus = document.getElementById("sampleStatus");
+    const sampleBankList = document.getElementById("sampleBankList");
     const DRAG_TYPE = {
       app: "application/x-app-index",
       slot: "application/x-slot-index"
+    };
+    const SAMPLE_CLIENTS = {
+      GridsSampler: {
+        subtitle: "Upload WAV files to the active sampler library used by GridsSampler.",
+        bankless: true
+      },
+      OneshotSampler: {
+        subtitle: "Upload WAV files into an existing or new Oneshot bank.",
+        bankless: false
+      }
     };
     const DEFAULT_STORAGE_BYTES = 3584 * 1024;
     const apiState = {
@@ -1408,6 +1664,10 @@
       maxSlots: 6,
       appsByName: new Map(),
       baseUrl: null
+    };
+    const sampleState = {
+      app: "",
+      payload: null
     };
     const PANEL_FOCUS = {
       IN: { x: "50%", y: "3%", scale: 2.5 },
@@ -1423,6 +1683,11 @@
 
     generateButton.addEventListener("click", generateFirmware);
     buildCancel.addEventListener("click", cancelBuild);
+    sampleClose.addEventListener("click", closeSampleClient);
+    sampleModal.addEventListener("click", (event) => {
+      if (event.target === sampleModal) closeSampleClient();
+    });
+    sampleUploadForm.addEventListener("submit", uploadSampleFiles);
 
     document.querySelectorAll("[data-device]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1494,7 +1759,12 @@
       throw lastError || new Error("API unavailable");
     }
 
-    async function loadManifest() {
+    async function loadManifest(showProgress = false) {
+      if (showProgress) {
+        buildCancel.disabled = true;
+        beginBuildUi();
+        startProgressTicker("Loading...", 8, 88);
+      }
       try {
         const response = await apiFetch("/api/manifest", { cache: "no-store" });
         if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
@@ -1512,18 +1782,43 @@
         setStatus("API offline", true);
       }
       render();
+      if (showProgress) {
+        try {
+          setBuildProgress(100, apiState.available ? "Catalog ready" : "API offline");
+          await delay(220);
+        } finally {
+          endBuildUi(false);
+          buildCancel.disabled = false;
+        }
+      }
     }
 
     function hydrateAppMetadata() {
       Object.values(DATA).forEach((device) => {
         device.apps.forEach((item) => {
-          const meta = apiState.appsByName.get(item.name);
-          item.id = meta?.id || item.name;
-          item.sizeBytes = Number.isFinite(meta?.sizeBytes) ? meta.sizeBytes : null;
-          item.allocatedBytes = Number.isFinite(meta?.allocatedBytes) ? meta.allocatedBytes : item.sizeBytes;
-          item.fitsRegion = meta?.fitsRegion;
+          applyAppMetadata(item, apiState.appsByName.get(item.name));
         });
       });
+    }
+
+    function applyAppMetadata(item, meta) {
+      item.id = meta?.id || item.name;
+      item.sizeBytes = Number.isFinite(meta?.sizeBytes) ? meta.sizeBytes : null;
+      item.allocatedBytes = Number.isFinite(meta?.allocatedBytes) ? meta.allocatedBytes : item.sizeBytes;
+      item.fitsRegion = meta?.fitsRegion;
+    }
+
+    function updateCatalogAppMetadata(meta) {
+      if (!meta?.name) return;
+      apiState.appsByName.set(meta.name, meta);
+      Object.values(DATA).forEach((device) => {
+        const item = device.apps.find((appData) => appData.name === meta.name);
+        if (item) applyAppMetadata(item, meta);
+      });
+      renderAppList();
+      renderSlots();
+      renderDetails();
+      updateGenerateAvailability();
     }
 
     function setStatus(message, isError = false) {
@@ -1555,6 +1850,9 @@
         if (needle && !haystack.includes(needle)) return;
         visibleCount += 1;
         const isInSlot = isAppInSlot(item.name);
+        const hasSampleClient = Boolean(SAMPLE_CLIENTS[item.name]);
+        const wrap = document.createElement("div");
+        wrap.className = `app-card-wrap${hasSampleClient ? " has-sample-settings" : ""}`;
         const button = document.createElement("button");
         button.type = "button";
         button.className = `app-card${index === state.selectedApp ? " active" : ""}${isInSlot ? " in-slot" : ""}`;
@@ -1578,11 +1876,233 @@
           renderAppList();
           renderDetails();
         });
-        appList.appendChild(button);
+        wrap.appendChild(button);
+        if (hasSampleClient) {
+          const settings = document.createElement("button");
+          settings.type = "button";
+          settings.className = "sample-settings";
+          settings.textContent = "Edit";
+          settings.addEventListener("click", (event) => {
+            event.stopPropagation();
+            openSampleClient(item.name);
+          });
+          wrap.appendChild(settings);
+        }
+        appList.appendChild(wrap);
       });
       if (!visibleCount) {
         appList.innerHTML = `<div class="empty-state">No apps match this search.</div>`;
       }
+    }
+
+    async function openSampleClient(appName) {
+      sampleState.app = appName;
+      sampleState.payload = null;
+      sampleTitle.textContent = `${appName} Samples`;
+      sampleSubtitle.textContent = SAMPLE_CLIENTS[appName]?.subtitle || "";
+      sampleStatus.textContent = "Loading samples...";
+      sampleStatus.classList.remove("error");
+      sampleBankList.innerHTML = "";
+      sampleFiles.value = "";
+      sampleBankName.value = "";
+      sampleModal.classList.add("open");
+      sampleModal.setAttribute("aria-hidden", "false");
+      await refreshSampleClient();
+    }
+
+    function closeSampleClient() {
+      sampleModal.classList.remove("open");
+      sampleModal.setAttribute("aria-hidden", "true");
+      sampleState.app = "";
+      sampleState.payload = null;
+    }
+
+    async function refreshSampleClient() {
+      if (!sampleState.app) return;
+      try {
+        const response = await apiFetch(`/api/samples?app=${encodeURIComponent(sampleState.app)}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `Samples HTTP ${response.status}`);
+        sampleState.payload = payload;
+        renderSampleClient();
+        sampleStatus.textContent = "Ready";
+        sampleStatus.classList.remove("error");
+      } catch (error) {
+        sampleStatus.textContent = error.message || "Failed to load samples";
+        sampleStatus.classList.add("error");
+      }
+    }
+
+    function renderSampleClient() {
+      const payload = sampleState.payload;
+      if (!payload) return;
+      if (payload.bankless) {
+        sampleBankName.hidden = true;
+        sampleBankName.disabled = true;
+        const libraryFiles = payload.libraryFiles || [];
+        const wavs = payload.wavs || [];
+        const files = libraryFiles.slice(0, 72).map((item) => {
+          const size = Number.isFinite(item.bytes) ? ` · ${formatCapacityBytes(item.bytes)}` : "";
+          return `<span class="sample-file-pill">${escapeHtml(item.name)}${size}</span>`;
+        }).join("");
+        const hiddenCount = Math.max(0, libraryFiles.length - 72);
+        sampleBankList.innerHTML = `
+          <section class="sample-bank">
+            <div class="sample-bank-head">
+              <strong>Sample library</strong>
+              <span>${libraryFiles.length} headers · ${wavs.length} WAV files</span>
+            </div>
+            <div class="sample-file-list">
+              ${files || "<span>No library headers found in Samples.h / samples.h.</span>"}
+              ${hiddenCount ? `<span class="sample-file-pill">+${hiddenCount} more</span>` : ""}
+            </div>
+          </section>
+        `;
+        return;
+      }
+
+      sampleBankName.hidden = false;
+      const banks = payload.banks || [];
+      sampleBankName.disabled = false;
+      sampleBankName.placeholder = "New Bank";
+
+      sampleBankList.innerHTML = banks.map((bank) => {
+        const files = (bank.samples || []).slice(0, 36).map((item) => {
+          return `<span class="sample-file-pill">${escapeHtml(item.name)} · ${formatCapacityBytes(item.bytes)}</span>`;
+        }).join("");
+        const hiddenCount = Math.max(0, (bank.samples || []).length - 36);
+        return `
+          <section class="sample-bank">
+            <div class="sample-bank-head">
+              <div class="sample-bank-title">
+                <strong>${escapeHtml(bank.name)}</strong>
+                <button class="sample-delete-bank" type="button" data-bank="${escapeHtml(bank.name)}">Delete</button>
+              </div>
+              <span>${bank.count} samples · ${formatCapacityBytes(bank.bytes)}</span>
+            </div>
+            <div class="sample-file-list">
+              ${files || "<span>No WAV files yet.</span>"}
+              ${hiddenCount ? `<span class="sample-file-pill">+${hiddenCount} more</span>` : ""}
+            </div>
+          </section>
+        `;
+      }).join("") || `<div class="empty-state">No sample banks found.</div>`;
+      sampleBankList.querySelectorAll(".sample-delete-bank").forEach((button) => {
+        button.addEventListener("click", () => deleteSampleBank(button.dataset.bank || ""));
+      });
+    }
+
+    async function uploadSampleFiles(event) {
+      event.preventDefault();
+      if (!sampleState.app) {
+        sampleStatus.textContent = "Open a sampler first.";
+        sampleStatus.classList.add("error");
+        return;
+      }
+      const payload = sampleState.payload;
+      const bankless = Boolean(payload?.bankless);
+      const bankName = bankless ? "" : (sampleBankName.value.trim() || "Custom");
+      const form = new FormData();
+      form.append("app", sampleState.app);
+      form.append("bank", bankName);
+      Array.from(sampleFiles.files).forEach((file) => form.append("files", file));
+      const hasFiles = sampleFiles.files.length > 0;
+
+      sampleUploadButton.disabled = true;
+      buildCancel.disabled = true;
+      beginBuildUi();
+      setBuildProgress(5, hasFiles ? "Uploading samples" : "Compiling capacity estimate");
+      if (hasFiles) {
+        startProgressTicker("Refreshing sample headers", 8, 48);
+      } else {
+        startProgressTicker("Compiling capacity estimate", 12, 92);
+      }
+      sampleStatus.textContent = hasFiles ? "Uploading and refreshing headers..." : "Compiling capacity estimate...";
+      sampleStatus.classList.remove("error");
+      try {
+        let result = null;
+        if (hasFiles) {
+          const response = await apiFetch("/api/samples/upload", {
+            method: "POST",
+            body: form
+          });
+          result = await response.json();
+          if (!response.ok) throw new Error(result.error || `Upload HTTP ${response.status}`);
+          sampleState.payload = result;
+          sampleFiles.value = "";
+          sampleBankName.value = "";
+          renderSampleClient();
+          startProgressTicker("Compiling capacity estimate", 55, 92);
+        }
+        await refreshAppCapacity(sampleState.app);
+        setBuildProgress(100, "Capacity updated");
+        await delay(240);
+        endBuildUi(false);
+        sampleModal.classList.add("open");
+        sampleModal.setAttribute("aria-hidden", "false");
+        if (hasFiles) {
+          const destination = result.bank ? ` to ${result.bank}` : "";
+          sampleStatus.textContent = `Uploaded ${result.saved.length} file${result.saved.length === 1 ? "" : "s"}${destination}. Capacity updated.`;
+        } else {
+          sampleStatus.textContent = "Capacity updated.";
+        }
+      } catch (error) {
+        endBuildUi(false);
+        sampleStatus.textContent = error.message || (hasFiles ? "Upload failed" : "Capacity update failed");
+        sampleStatus.classList.add("error");
+      } finally {
+        if (state.progressTimer) {
+          clearTimeout(state.progressTimer);
+          state.progressTimer = 0;
+        }
+        if (state.generating) endBuildUi(false);
+        buildCancel.disabled = false;
+        sampleUploadButton.disabled = false;
+      }
+    }
+
+    async function deleteSampleBank(bankName) {
+      if (!sampleState.app || !bankName) return;
+      if (!window.confirm(`Delete bank "${bankName}" and all WAV/header files inside it?`)) return;
+
+      sampleStatus.textContent = `Deleting ${bankName}...`;
+      sampleStatus.classList.remove("error");
+      try {
+        const response = await apiFetch("/api/samples/delete-bank", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            app: sampleState.app,
+            bank: bankName
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `Delete HTTP ${response.status}`);
+        sampleState.payload = result;
+        renderSampleClient();
+        sampleStatus.textContent = `Deleted ${result.deleted || bankName}. Click Upload to compile capacity and update Catalog.`;
+      } catch (error) {
+        sampleStatus.textContent = error.message || "Delete failed";
+        sampleStatus.classList.add("error");
+      }
+    }
+
+    async function refreshAppCapacity(appName) {
+      const response = await apiFetch(`/api/app-size?app=${encodeURIComponent(appName)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `Capacity HTTP ${response.status}`);
+      updateCatalogAppMetadata(payload);
+      return payload;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[char]));
     }
 
     function renderSlots() {
@@ -1801,6 +2321,29 @@
       buildProgressMessage.textContent = message;
     }
 
+    function startProgressTicker(message, start, limit) {
+      if (state.progressTimer) {
+        clearTimeout(state.progressTimer);
+        state.progressTimer = 0;
+      }
+      let value = Math.max(0, Math.min(100, Number(start) || 0));
+      const max = Math.max(value, Math.min(99, Number(limit) || 90));
+      setBuildProgress(value, message);
+      const tick = () => {
+        if (!state.generating) return;
+        value = Math.min(max, value + Math.max(1, Math.ceil((max - value) * 0.16)));
+        setBuildProgress(value, message);
+        if (value < max) {
+          state.progressTimer = window.setTimeout(tick, 420);
+        }
+      };
+      state.progressTimer = window.setTimeout(tick, 420);
+    }
+
+    function delay(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
     function beginBuildUi() {
       state.generating = true;
       document.querySelector(".app").classList.add("generating");
@@ -2017,7 +2560,7 @@
       return match ? match[1] : "";
     }
 
-    loadManifest();
+    loadManifest(true);
     updateFooterReveal();
   </script>
 </body>

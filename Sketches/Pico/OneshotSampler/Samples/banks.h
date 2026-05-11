@@ -16,16 +16,16 @@ struct sample_bank_t {
   const char *name;
 };
 
-#include "bank_breaks_and_pads.h"
 #include "bank_tr_606.h"
 #include "bank_tr_808.h"
 #include "bank_tr_909.h"
+#include "bank_temp.h"
 
 static sample_bank_t sample_banks[] = {
-  {bank_breaks_and_pads_samples, bank_breaks_and_pads_count, bank_breaks_and_pads_name},
   {bank_tr_606_samples, bank_tr_606_count, bank_tr_606_name},
   {bank_tr_808_samples, bank_tr_808_count, bank_tr_808_name},
   {bank_tr_909_samples, bank_tr_909_count, bank_tr_909_name},
+  {bank_temp_samples, bank_temp_count, bank_temp_name},
 };
 
 #define NUM_BANKS ((uint16_t)(sizeof(sample_banks) / sizeof(sample_bank_t)))

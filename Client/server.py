@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import importlib.util
+import cgi
 import json
 import mimetypes
 import re
@@ -99,10 +100,20 @@ APPS = [
 APP_BY_ID = {app.id: app for app in APPS}
 JOBS: dict[str, "BuildJob"] = {}
 JOBS_LOCK = threading.Lock()
+SAMPLE_APPS = {
+    "GridsSampler": ROOT / "Sketches" / "Pico" / "GridsSampler" / "Samples",
+    "OneshotSampler": ROOT / "Sketches" / "Pico" / "OneshotSampler" / "Samples",
+}
 
 
 class BuildCancelled(RuntimeError):
     pass
+
+
+class SizeOverflow(RuntimeError):
+    def __init__(self, size_bytes: int):
+        super().__init__(f"app exceeds available flash by {size_bytes - APP_REGION_BYTES} bytes")
+        self.size_bytes = size_bytes
 
 
 @dataclass
@@ -144,7 +155,16 @@ def align_up(value: int, alignment: int) -> int:
 
 
 def app_size(app: AppDef) -> dict:
-    path = app.prebuilt_path if app.prebuilt_path and app.prebuilt_path.exists() else size_probe_uf2(app)
+    try:
+        path = app.prebuilt_path if app.prebuilt_path and app.prebuilt_path.exists() else size_probe_uf2(app)
+    except SizeOverflow as exc:
+        allocated_bytes = align_up(exc.size_bytes, SLOT_ALIGN_BYTES)
+        return {
+            "sizeBytes": exc.size_bytes,
+            "allocatedBytes": allocated_bytes,
+            "fitsRegion": False,
+            "source": None,
+        }
     if path is None or not path.exists():
         return {
             "sizeBytes": None,
@@ -176,21 +196,17 @@ def size_probe_uf2(app: AppDef) -> Path | None:
             BOOT.PICO_SELECTOR_FIRST_APP_OFFSET,
             APP_REGION_BYTES,
         )
-    except Exception:
+    except Exception as exc:
+        match = re.search(r"region `FLASH' overflowed by (\d+) bytes", str(exc))
+        if match:
+            raise SizeOverflow(APP_REGION_BYTES + int(match.group(1))) from exc
         return None
 
 
 def manifest_payload() -> dict:
     apps = []
     for app in APPS:
-        row = {
-            "id": app.id,
-            "device": app.device,
-            "name": app.name,
-            "sketch": app.sketch,
-        }
-        row.update(app_size(app))
-        apps.append(row)
+        apps.append(app_payload(app))
     return {
         "storageBytes": APP_REGION_BYTES,
         "slotAlignBytes": SLOT_ALIGN_BYTES,
@@ -202,8 +218,207 @@ def manifest_payload() -> dict:
     }
 
 
+def app_payload(app: AppDef) -> dict:
+    row = {
+        "id": app.id,
+        "device": app.device,
+        "name": app.name,
+        "sketch": app.sketch,
+    }
+    row.update(app_size(app))
+    return row
+
+
 def slug(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_") or "app"
+
+
+def safe_segment(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_. -]+", "_", value).strip(" ._-")
+    return cleaned or "Samples"
+
+
+def safe_filename(value: str) -> str:
+    name = Path(value).name
+    stem = safe_segment(Path(name).stem)
+    suffix = Path(name).suffix.lower()
+    if suffix != ".wav":
+        raise RuntimeError("only .wav files are supported")
+    return f"{stem}.wav"
+
+
+def sample_bank_dirs(app_id: str) -> list[Path]:
+    root = SAMPLE_APPS.get(app_id)
+    if not root or not root.exists():
+        raise RuntimeError(f"sample app not supported: {app_id}")
+    banks = [
+        path for path in sorted(root.iterdir())
+        if path.is_dir() and not path.name.startswith(".") and any(path.glob("*.wav"))
+    ]
+    return banks
+
+
+def sample_includes_from_header(sample_root: Path) -> list[dict]:
+    manifest = sample_root / "Samples.h"
+    if not manifest.exists():
+        manifest = sample_root / "samples.h"
+    if not manifest.exists():
+        return []
+    includes = []
+    for line in manifest.read_text(errors="replace").splitlines():
+        match = re.match(r'\s*#include\s+"([^"]+\.h)"', line)
+        if not match:
+            continue
+        header = match.group(1)
+        if header == "sampledefs.h":
+            continue
+        path = (sample_root / header).resolve()
+        item = {"name": header, "bytes": None}
+        try:
+            path.relative_to(sample_root.resolve())
+            if path.exists():
+                item["bytes"] = path.stat().st_size
+        except ValueError:
+            pass
+        includes.append(item)
+    return includes
+
+
+def samples_payload(app_id: str) -> dict:
+    root = SAMPLE_APPS.get(app_id)
+    if not root or not root.exists():
+        raise RuntimeError(f"sample app not supported: {app_id}")
+    if app_id == "GridsSampler":
+        includes = sample_includes_from_header(root)
+        wavs = sorted(list(root.glob("*.wav")) + list(root.glob("*.WAV")))
+        return {
+            "app": app_id,
+            "root": str(root.relative_to(ROOT)),
+            "banks": [],
+            "libraryFiles": includes,
+            "wavs": [
+                {"name": item.name, "bytes": item.stat().st_size}
+                for item in wavs
+            ],
+            "bankless": True,
+        }
+
+    banks = []
+    for bank in sample_bank_dirs(app_id):
+        wavs = sorted(list(bank.glob("*.wav")) + list(bank.glob("*.WAV")))
+        banks.append(
+            {
+                "name": bank.name,
+                "path": str(bank.relative_to(ROOT)),
+                "count": len(wavs),
+                "bytes": sum(item.stat().st_size for item in wavs),
+                "samples": [
+                    {"name": item.name, "bytes": item.stat().st_size}
+                    for item in wavs
+                ],
+            }
+        )
+    return {
+        "app": app_id,
+        "root": str(root.relative_to(ROOT)),
+        "banks": banks,
+        "bankless": False,
+    }
+
+
+def invalidate_size_cache(app_id: str) -> None:
+    cache = BUILD_ROOT / "sizes" / f"slot0-{slug(app_id)}"
+    if cache.exists():
+        shutil.rmtree(cache)
+
+
+def clamp_sample_names(sample_root: Path) -> None:
+    pattern = re.compile(r'^(\s*)"([^"]{20,})"(\s*,\s*//\s*sample name\s*)$')
+    for header in sample_root.rglob("*.h"):
+        if header.name.startswith("bank_") or header.name in {"sampledefs.h"}:
+            original = header.read_text(errors="replace")
+            changed = False
+
+            def replace(match: re.Match) -> str:
+                nonlocal changed
+                changed = True
+                return f'{match.group(1)}"{match.group(2)[:19]}"{match.group(3)}'
+
+            updated = "\n".join(pattern.sub(replace, line) for line in original.splitlines())
+            if original.endswith("\n"):
+                updated += "\n"
+            if changed:
+                header.write_text(updated)
+
+
+def rebuild_sample_headers(app_id: str) -> None:
+    if app_id == "GridsSampler":
+        root = SAMPLE_APPS[app_id]
+        tool = root / "wav2header44khz"
+        if not tool.exists():
+            raise RuntimeError(f"missing converter: {tool.relative_to(ROOT)}")
+        subprocess.run([str(tool)], cwd=root, check=True)
+        clamp_sample_names(root)
+    elif app_id == "OneshotSampler":
+        root = SAMPLE_APPS[app_id]
+        script = root / "exec"
+        if not script.exists():
+            raise RuntimeError(f"missing converter script: {script.relative_to(ROOT)}")
+        subprocess.run(["/bin/zsh", str(script)], cwd=root, check=True)
+        clamp_sample_names(root)
+    else:
+        raise RuntimeError(f"sample app not supported: {app_id}")
+    invalidate_size_cache(app_id)
+
+
+def upload_samples(app_id: str, bank: str, fields: cgi.FieldStorage) -> dict:
+    root = SAMPLE_APPS.get(app_id)
+    if not root:
+        raise RuntimeError(f"sample app not supported: {app_id}")
+    target_bank = root if app_id == "GridsSampler" else root / safe_segment(bank)
+    target_bank.mkdir(parents=True, exist_ok=True)
+
+    file_fields = fields["files"] if "files" in fields else []
+    if not isinstance(file_fields, list):
+        file_fields = [file_fields]
+    saved = []
+    for item in file_fields:
+        if not getattr(item, "filename", ""):
+            continue
+        filename = safe_filename(item.filename)
+        target = target_bank / filename
+        with target.open("wb") as out:
+            shutil.copyfileobj(item.file, out)
+        saved.append(filename)
+    if not saved:
+        raise RuntimeError("no .wav files uploaded")
+
+    rebuild_sample_headers(app_id)
+    payload = samples_payload(app_id)
+    payload["saved"] = saved
+    payload["bank"] = target_bank.name
+    return payload
+
+
+def delete_sample_bank(app_id: str, bank: str) -> dict:
+    if app_id != "OneshotSampler":
+        raise RuntimeError("bank deletion is only supported for OneshotSampler")
+    root = SAMPLE_APPS.get(app_id)
+    if not root:
+        raise RuntimeError(f"sample app not supported: {app_id}")
+    bank_name = safe_segment(bank)
+    target = (root / bank_name).resolve()
+    try:
+        target.relative_to(root.resolve())
+    except ValueError as exc:
+        raise RuntimeError("invalid bank path") from exc
+    if not target.is_dir():
+        raise RuntimeError(f"bank not found: {bank_name}")
+    shutil.rmtree(target)
+    rebuild_sample_headers(app_id)
+    payload = samples_payload(app_id)
+    payload["deleted"] = bank_name
+    return payload
 
 
 def existing_libraries() -> list[Path]:
@@ -452,6 +667,17 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/manifest":
             self.send_json(HTTPStatus.OK, manifest_payload())
             return
+        if parsed.path == "/api/app-size":
+            try:
+                app_id = parse_qs(parsed.query).get("app", [""])[0]
+                app = APP_BY_ID.get(app_id)
+                if not app:
+                    self.send_json(HTTPStatus.NOT_FOUND, {"error": "app not found"})
+                    return
+                self.send_json(HTTPStatus.OK, app_payload(app))
+            except Exception as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
         if parsed.path == "/api/generate/status":
             job_id = parse_qs(parsed.query).get("id", [""])[0]
             job = get_job(job_id)
@@ -470,6 +696,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/health":
             self.send_json(HTTPStatus.OK, {"ok": True})
+            return
+        if parsed.path == "/api/samples":
+            try:
+                app_id = parse_qs(parsed.query).get("app", [""])[0]
+                self.send_json(HTTPStatus.OK, samples_payload(app_id))
+            except Exception as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
         super().do_GET()
 
@@ -512,6 +745,31 @@ class Handler(SimpleHTTPRequestHandler):
                     return
                 job.cancel()
                 self.send_json(HTTPStatus.OK, job.snapshot())
+            except Exception as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+        if parsed.path == "/api/samples/upload":
+            try:
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={
+                        "REQUEST_METHOD": "POST",
+                        "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                        "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+                    },
+                )
+                app_id = form.getfirst("app", "")
+                bank = form.getfirst("bank", "")
+                self.send_json(HTTPStatus.OK, upload_samples(app_id, bank, form))
+            except Exception as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+        if parsed.path == "/api/samples/delete-bank":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                self.send_json(HTTPStatus.OK, delete_sample_bank(payload.get("app", ""), payload.get("bank", "")))
             except Exception as exc:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
