@@ -12,6 +12,7 @@ import importlib.util
 import cgi
 import json
 import mimetypes
+import os
 import re
 import shutil
 import subprocess
@@ -29,14 +30,29 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT_DIR = ROOT / "Client"
 BOOT_TOOL = ROOT / "Bootloader" / "Tools" / "pico_boot_apps.py"
-SELECTOR_UF2 = ROOT / "Bootloader" / "build" / "Pico_Firmware_selector_only.uf2"
+SELECTOR_UF2_ENV = "PICO_SELECTOR_UF2"
+DEFAULT_SELECTOR_UF2 = ROOT / "Bootloader" / "build" / "Pico_Firmware_selector_only.uf2"
+SELECTOR_UF2_CANDIDATES = [
+    DEFAULT_SELECTOR_UF2,
+    ROOT / "Bootloader" / "build" / "Pico_Firmware.uf2",
+    ROOT / "Bootloader" / "build" / "pico_selector.uf2",
+]
 BUILD_ROOT = ROOT / "Bootloader" / "build" / "client"
+SIZE_CACHE_ROOT = BUILD_ROOT / "sizes"
 APP_REGION_BYTES = 3584 * 1024
 SLOT_ALIGN_BYTES = 4096
 MAX_SLOTS = 6
 DEFAULT_TARGET = "rp2350"
 DEFAULT_CPU_HZ = 250_000_000
 DEFAULT_FQBN = "rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=250"
+BUILD_CACHE_VERSION = 1
+SKIP_MTIME_DIRS = {".git", "__pycache__"}
+
+LIBRARY_PATHS_CACHE: list[Path] | None = None
+UF2_SIZE_CACHE: dict[tuple[str, int, int], dict] = {}
+SOURCE_MTIME_CACHE: dict[str, tuple[float, int]] = {}
+LIBRARY_MTIME_CACHE: tuple[float, int] | None = None
+CACHE_LOCK = threading.Lock()
 
 
 def load_boot_tool():
@@ -49,6 +65,68 @@ def load_boot_tool():
 
 
 BOOT = load_boot_tool()
+
+
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def selector_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    env_path = os.environ.get(SELECTOR_UF2_ENV)
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+    candidates.extend(SELECTOR_UF2_CANDIDATES)
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in candidates:
+        resolved = path if path.is_absolute() else ROOT / path
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    return unique
+
+
+def build_selector_uf2(job: "BuildJob | None" = None) -> None:
+    build_dir = ROOT / "Bootloader" / "build"
+    if shutil.which("cmake") is None:
+        raise RuntimeError("missing selector UF2 and cmake is not available to build it")
+
+    if not (build_dir / "build.ninja").exists() and not (build_dir / "Makefile").exists():
+        configure_cmd = [
+            "cmake",
+            "-S",
+            str(ROOT / "Bootloader" / "Selector"),
+            "-B",
+            str(build_dir),
+            "-DPICO_BOARD=pico2",
+        ]
+        if shutil.which("ninja"):
+            configure_cmd.extend(["-G", "Ninja"])
+        run_command(configure_cmd, job)
+
+    run_command(["cmake", "--build", str(build_dir), "--target", "pico_selector"], job)
+
+
+def selector_uf2_path(job: "BuildJob | None" = None, *, build_if_missing: bool = False) -> Path:
+    for candidate in selector_candidates():
+        if candidate.exists():
+            return candidate
+
+    if build_if_missing:
+        build_selector_uf2(job)
+        for candidate in selector_candidates():
+            if candidate.exists():
+                return candidate
+
+    tried = ", ".join(display_path(path) for path in selector_candidates())
+    raise RuntimeError(
+        f"missing selector UF2. Tried: {tried}. "
+        f"Set {SELECTOR_UF2_ENV} to override the selector UF2 path."
+    )
 
 
 @dataclass(frozen=True)
@@ -154,9 +232,94 @@ def align_up(value: int, alignment: int) -> int:
     return ((value + alignment - 1) // alignment) * alignment
 
 
+def file_signature(path: Path) -> tuple[str, int, int]:
+    stat = path.stat()
+    return (str(path), stat.st_mtime_ns, stat.st_size)
+
+
+def tree_latest_mtime_ns(path: Path) -> int:
+    if not path.exists():
+        return 0
+    latest = path.stat().st_mtime_ns
+    if path.is_file():
+        return latest
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [
+            name for name in dirs
+            if name not in SKIP_MTIME_DIRS and not name.startswith(".") and not name.startswith("build_")
+        ]
+        root_path = Path(root)
+        for name in files:
+            if name == ".DS_Store":
+                continue
+            try:
+                latest = max(latest, (root_path / name).stat().st_mtime_ns)
+            except OSError:
+                pass
+    return latest
+
+
+def build_inputs_mtime_ns(app: AppDef) -> int:
+    now = time.monotonic()
+    with CACHE_LOCK:
+        cached = SOURCE_MTIME_CACHE.get(app.id)
+        if cached and now - cached[0] < 2.0:
+            return cached[1]
+
+    latest = max(
+        tree_latest_mtime_ns(app.sketch_path),
+        tree_latest_mtime_ns(BOOT_TOOL),
+        tree_latest_mtime_ns(BOOT_TOOL.with_name("make_slot_memmap.py")),
+        libraries_mtime_ns(),
+    )
+
+    with CACHE_LOCK:
+        SOURCE_MTIME_CACHE[app.id] = (now, latest)
+    return latest
+
+
+def libraries_mtime_ns() -> int:
+    global LIBRARY_MTIME_CACHE
+    now = time.monotonic()
+    with CACHE_LOCK:
+        if LIBRARY_MTIME_CACHE and now - LIBRARY_MTIME_CACHE[0] < 2.0:
+            return LIBRARY_MTIME_CACHE[1]
+
+    latest = 0
+    for library in existing_libraries():
+        latest = max(latest, tree_latest_mtime_ns(library))
+
+    with CACHE_LOCK:
+        LIBRARY_MTIME_CACHE = (now, latest)
+    return latest
+
+
+def read_app_size(path: Path) -> dict:
+    key = file_signature(path)
+    with CACHE_LOCK:
+        cached = UF2_SIZE_CACHE.get(key)
+        if cached:
+            return dict(cached)
+
+    blocks = BOOT.read_uf2(path)
+    size_bytes = BOOT.app_usage_bytes(blocks)
+    allocated_bytes = align_up(size_bytes, SLOT_ALIGN_BYTES)
+    payload = {
+        "sizeBytes": size_bytes,
+        "allocatedBytes": allocated_bytes,
+        "fitsRegion": allocated_bytes <= APP_REGION_BYTES,
+        "source": display_path(path),
+    }
+    with CACHE_LOCK:
+        UF2_SIZE_CACHE[key] = dict(payload)
+    return payload
+
+
 def app_size(app: AppDef) -> dict:
     try:
-        path = app.prebuilt_path if app.prebuilt_path and app.prebuilt_path.exists() else size_probe_uf2(app)
+        path = size_probe_uf2(app)
+        if path is None and app.prebuilt_path and app.prebuilt_path.exists():
+            path = app.prebuilt_path
     except SizeOverflow as exc:
         allocated_bytes = align_up(exc.size_bytes, SLOT_ALIGN_BYTES)
         return {
@@ -172,19 +335,11 @@ def app_size(app: AppDef) -> dict:
             "fitsRegion": None,
             "source": None,
         }
-    blocks = BOOT.read_uf2(path)
-    size_bytes = BOOT.app_usage_bytes(blocks)
-    allocated_bytes = align_up(size_bytes, SLOT_ALIGN_BYTES)
-    return {
-        "sizeBytes": size_bytes,
-        "allocatedBytes": allocated_bytes,
-        "fitsRegion": allocated_bytes <= APP_REGION_BYTES,
-        "source": str(path.relative_to(ROOT)),
-    }
+    return read_app_size(path)
 
 
 def size_probe_uf2(app: AppDef) -> Path | None:
-    build_path = BUILD_ROOT / "sizes" / f"slot0-{slug(app.id)}"
+    build_path = size_cache_build_path(app)
     cached = sorted(build_path.glob("*.ino.uf2"))
     if cached:
         return cached[0]
@@ -203,15 +358,23 @@ def size_probe_uf2(app: AppDef) -> Path | None:
         return None
 
 
+def size_cache_build_path(app: AppDef) -> Path:
+    return SIZE_CACHE_ROOT / f"slot0-{slug(app.id)}"
+
+
 def manifest_payload() -> dict:
     apps = []
     for app in APPS:
         apps.append(app_payload(app))
+    try:
+        selector_path = display_path(selector_uf2_path())
+    except RuntimeError:
+        selector_path = display_path(selector_candidates()[0])
     return {
         "storageBytes": APP_REGION_BYTES,
         "slotAlignBytes": SLOT_ALIGN_BYTES,
         "maxSlots": MAX_SLOTS,
-        "selector": str(SELECTOR_UF2.relative_to(ROOT)),
+        "selector": selector_path,
         "target": DEFAULT_TARGET,
         "cpuHz": DEFAULT_CPU_HZ,
         "apps": apps,
@@ -247,14 +410,32 @@ def safe_filename(value: str) -> str:
     return f"{stem}.wav"
 
 
-def sample_bank_dirs(app_id: str) -> list[Path]:
+def wav_files(path: Path) -> list[Path]:
+    files = {item.resolve(): item for item in list(path.glob("*.wav")) + list(path.glob("*.WAV"))}
+    return sorted(files.values(), key=lambda item: item.name.lower())
+
+
+def sample_file_rows(files: list[Path]) -> tuple[list[dict], int]:
+    rows = []
+    total = 0
+    for item in files:
+        size = item.stat().st_size
+        total += size
+        rows.append({"name": item.name, "bytes": size})
+    return rows, total
+
+
+def sample_bank_entries(app_id: str) -> list[tuple[Path, list[Path]]]:
     root = SAMPLE_APPS.get(app_id)
     if not root or not root.exists():
         raise RuntimeError(f"sample app not supported: {app_id}")
-    banks = [
-        path for path in sorted(root.iterdir())
-        if path.is_dir() and not path.name.startswith(".") and any(path.glob("*.wav"))
-    ]
+    banks = []
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or path.name.startswith("."):
+            continue
+        wavs = wav_files(path)
+        if wavs:
+            banks.append((path, wavs))
     return banks
 
 
@@ -290,32 +471,26 @@ def samples_payload(app_id: str) -> dict:
         raise RuntimeError(f"sample app not supported: {app_id}")
     if app_id == "GridsSampler":
         includes = sample_includes_from_header(root)
-        wavs = sorted(list(root.glob("*.wav")) + list(root.glob("*.WAV")))
+        wav_rows, _wav_bytes = sample_file_rows(wav_files(root))
         return {
             "app": app_id,
             "root": str(root.relative_to(ROOT)),
             "banks": [],
             "libraryFiles": includes,
-            "wavs": [
-                {"name": item.name, "bytes": item.stat().st_size}
-                for item in wavs
-            ],
+            "wavs": wav_rows,
             "bankless": True,
         }
 
     banks = []
-    for bank in sample_bank_dirs(app_id):
-        wavs = sorted(list(bank.glob("*.wav")) + list(bank.glob("*.WAV")))
+    for bank, wavs in sample_bank_entries(app_id):
+        wav_rows, wav_bytes = sample_file_rows(wavs)
         banks.append(
             {
                 "name": bank.name,
                 "path": str(bank.relative_to(ROOT)),
-                "count": len(wavs),
-                "bytes": sum(item.stat().st_size for item in wavs),
-                "samples": [
-                    {"name": item.name, "bytes": item.stat().st_size}
-                    for item in wavs
-                ],
+                "count": len(wav_rows),
+                "bytes": wav_bytes,
+                "samples": wav_rows,
             }
         )
     return {
@@ -327,9 +502,43 @@ def samples_payload(app_id: str) -> dict:
 
 
 def invalidate_size_cache(app_id: str) -> None:
-    cache = BUILD_ROOT / "sizes" / f"slot0-{slug(app_id)}"
+    cache = SIZE_CACHE_ROOT / f"slot0-{slug(app_id)}"
     if cache.exists():
         shutil.rmtree(cache)
+    with CACHE_LOCK:
+        SOURCE_MTIME_CACHE.pop(app_id, None)
+        UF2_SIZE_CACHE.clear()
+
+
+def invalidate_app_build_cache(app_id: str) -> None:
+    app_slug = slug(app_id)
+    for cache in BUILD_ROOT.glob(f"slot*-{app_slug}"):
+        if cache.is_dir():
+            shutil.rmtree(cache)
+    invalidate_size_cache(app_id)
+
+
+def clean_output_dir(keep: Path | None = None) -> None:
+    output_dir = BUILD_ROOT / "output"
+    if not output_dir.exists():
+        return
+    keep_resolved = keep.resolve() if keep else None
+    for path in output_dir.iterdir():
+        if keep_resolved and path.resolve() == keep_resolved:
+            continue
+        if path.is_file():
+            path.unlink(missing_ok=True)
+
+
+def slot_build_path(slot_index: int, app: AppDef) -> Path:
+    return BUILD_ROOT / f"slot{slot_index}-{slug(app.id)}"
+
+
+def clean_slot_build_dirs(layout: list[dict]) -> None:
+    for item in layout:
+        build_path = slot_build_path(item["slot"], item["app"])
+        if build_path.exists():
+            shutil.rmtree(build_path)
 
 
 def clamp_sample_names(sample_root: Path) -> None:
@@ -368,7 +577,7 @@ def rebuild_sample_headers(app_id: str) -> None:
         clamp_sample_names(root)
     else:
         raise RuntimeError(f"sample app not supported: {app_id}")
-    invalidate_size_cache(app_id)
+    invalidate_app_build_cache(app_id)
 
 
 def upload_samples(app_id: str, bank: str, fields: cgi.FieldStorage) -> dict:
@@ -422,11 +631,15 @@ def delete_sample_bank(app_id: str, bank: str) -> dict:
 
 
 def existing_libraries() -> list[Path]:
+    global LIBRARY_PATHS_CACHE
+    if LIBRARY_PATHS_CACHE is not None:
+        return LIBRARY_PATHS_CACHE
     candidates = [
         ROOT / "Sketches" / "lib",
         Path.home() / "Documents" / "Arduino" / "libraries",
     ]
-    return [path for path in candidates if path.exists()]
+    LIBRARY_PATHS_CACHE = [path for path in candidates if path.exists()]
+    return LIBRARY_PATHS_CACHE
 
 
 def prepared_sketch_path(app: AppDef, build_path: Path) -> Path:
@@ -468,6 +681,68 @@ def run_command(cmd: list[str], job: BuildJob | None = None) -> None:
         raise RuntimeError(tail or f"command failed: {' '.join(cmd)}")
 
 
+def build_metadata_path(build_path: Path) -> Path:
+    return build_path / ".pico_client_build.json"
+
+
+def build_metadata(app: AppDef, slot_index: int, slot_offset: int, slot_size: int) -> dict:
+    return {
+        "version": BUILD_CACHE_VERSION,
+        "app": app.id,
+        "slot": slot_index,
+        "slotOffset": slot_offset,
+        "slotSize": slot_size,
+        "fqbn": DEFAULT_FQBN,
+        "inputMtimeNs": build_inputs_mtime_ns(app),
+    }
+
+
+def write_build_metadata(build_path: Path, metadata: dict, uf2_path: Path) -> None:
+    payload = dict(metadata)
+    payload["uf2"] = uf2_path.name
+    build_metadata_path(build_path).write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def cached_slot_uf2(
+    app: AppDef,
+    build_path: Path,
+    slot_index: int,
+    slot_offset: int,
+    slot_size: int,
+    metadata: dict,
+) -> Path | None:
+    uf2_files = sorted(build_path.glob("*.ino.uf2"))
+    if not uf2_files:
+        return None
+
+    uf2_path = uf2_files[0]
+    if uf2_path.stat().st_mtime_ns < metadata["inputMtimeNs"]:
+        return None
+
+    metadata_path = build_metadata_path(build_path)
+    if metadata_path.exists():
+        try:
+            existing = json.loads(metadata_path.read_text())
+        except json.JSONDecodeError:
+            return None
+        expected = dict(metadata)
+        expected["uf2"] = uf2_path.name
+        if existing != expected:
+            return None
+
+    try:
+        blocks = BOOT.read_uf2(uf2_path)
+        span_start, _span_end = BOOT.app_flash_span(blocks)
+        if span_start - BOOT.XIP_BASE != slot_offset:
+            return None
+        if BOOT.app_usage_bytes(blocks) > slot_size:
+            return None
+    except Exception:
+        return None
+
+    return uf2_path
+
+
 def build_slot_to_path(
     slot_index: int,
     app: AppDef,
@@ -478,6 +753,21 @@ def build_slot_to_path(
 ) -> Path:
     if not app.sketch_path.exists():
         raise RuntimeError(f"missing sketch: {app.sketch}")
+    metadata = build_metadata(app, slot_index, slot_offset, slot_size)
+    size_cache_path = size_cache_build_path(app)
+    if size_cache_path != build_path:
+        cached = cached_slot_uf2(app, size_cache_path, slot_index, slot_offset, slot_size, metadata)
+        if cached:
+            if job:
+                job.message = f"Reading {app.name} from sizes"
+            return cached
+
+    cached = cached_slot_uf2(app, build_path, slot_index, slot_offset, slot_size, metadata)
+    if cached:
+        if job:
+            job.message = f"Reusing {app.name}"
+        return cached
+
     sketch_path = prepared_sketch_path(app, build_path)
 
     cmd = [
@@ -503,11 +793,12 @@ def build_slot_to_path(
     uf2_files = sorted(build_path.glob("*.ino.uf2"))
     if not uf2_files:
         raise RuntimeError(f"slot build did not produce a UF2 in {build_path}")
+    write_build_metadata(build_path, metadata, uf2_files[0])
     return uf2_files[0]
 
 
 def build_slot(slot_index: int, app: AppDef, slot_offset: int, slot_size: int, job: BuildJob | None = None) -> Path:
-    build_path = BUILD_ROOT / f"slot{slot_index}-{slug(app.id)}"
+    build_path = slot_build_path(slot_index, app)
     return build_slot_to_path(slot_index, app, build_path, slot_offset, slot_size, job)
 
 
@@ -546,8 +837,10 @@ def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path,
         raise RuntimeError("invalid device")
     if not isinstance(slots, list) or not 1 <= len(slots) <= MAX_SLOTS:
         raise RuntimeError(f"slots must contain 1 to {MAX_SLOTS} entries")
-    if not SELECTOR_UF2.exists():
-        raise RuntimeError(f"missing selector UF2: {SELECTOR_UF2.relative_to(ROOT)}")
+    if job:
+        job.status = "running"
+        job.update(1, "Checking selector")
+    selector_path = selector_uf2_path(job, build_if_missing=True)
 
     selected: list[tuple[int, AppDef]] = []
     for index, app_id in enumerate(slots):
@@ -569,55 +862,58 @@ def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path,
 
     layout = plan_layout(selected)
     if job:
-        job.status = "running"
         job.update(3, "Planning")
-    built = []
-    total_steps = len(layout) + 1
-    for step_index, item in enumerate(layout):
-        if job and job.cancel_requested:
-            raise BuildCancelled("cancelled")
-        if job:
-            start_percent = 5 + int((step_index / total_steps) * 85)
-            job.update(start_percent, f"Building {item['app'].name}")
-        uf2_path = build_slot(item["slot"], item["app"], item["offset"], item["size"], job)
-        size_bytes = BOOT.app_usage_bytes(BOOT.read_uf2(uf2_path))
-        if size_bytes > item["size"]:
-            raise RuntimeError(f"slot {item['slot'] + 1} app exceeds its allocated region")
-        built.append((item["slot"], uf2_path))
-        if job:
-            done_percent = 5 + int(((step_index + 1) / total_steps) * 85)
-            job.update(done_percent, f"Built {item['app'].name}")
+    try:
+        built = []
+        total_steps = len(layout) + 1
+        for step_index, item in enumerate(layout):
+            if job and job.cancel_requested:
+                raise BuildCancelled("cancelled")
+            if job:
+                start_percent = 5 + int((step_index / total_steps) * 85)
+                job.update(start_percent, f"Building {item['app'].name}")
+            uf2_path = build_slot(item["slot"], item["app"], item["offset"], item["size"], job)
+            size_bytes = BOOT.app_usage_bytes(BOOT.read_uf2(uf2_path))
+            if size_bytes > item["size"]:
+                raise RuntimeError(f"slot {item['slot'] + 1} app exceeds its allocated region")
+            built.append((item["slot"], uf2_path))
+            if job:
+                done_percent = 5 + int(((step_index + 1) / total_steps) * 85)
+                job.update(done_percent, f"Built {item['app'].name}")
 
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    output_name = f"Pico-Eurorack-{device}-{timestamp}.uf2"
-    output_path = BUILD_ROOT / "output" / output_name
-    cmd = [
-        sys.executable,
-        str(BOOT_TOOL),
-        "package",
-        "--selector",
-        str(SELECTOR_UF2),
-        "--output",
-        str(output_path),
-        "--target",
-        DEFAULT_TARGET,
-        "--cpu-hz",
-        str(DEFAULT_CPU_HZ),
-        "--app-region-size",
-        str(APP_REGION_BYTES),
-        "--slot-padding",
-        "0",
-        "--active",
-        str(active),
-    ]
-    for index, uf2_path in built:
-        cmd.extend(["--slot-app", f"{index}={uf2_path}"])
-    if job:
-        job.update(92, "Packaging UF2")
-    run_command(cmd, job)
-    if job:
-        job.update(100, "Generated")
-    return output_path, output_name
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        output_name = f"Pico-Eurorack-{device}-{timestamp}.uf2"
+        output_path = BUILD_ROOT / "output" / output_name
+        clean_output_dir(keep=output_path)
+        cmd = [
+            sys.executable,
+            str(BOOT_TOOL),
+            "package",
+            "--selector",
+            str(selector_path),
+            "--output",
+            str(output_path),
+            "--target",
+            DEFAULT_TARGET,
+            "--cpu-hz",
+            str(DEFAULT_CPU_HZ),
+            "--app-region-size",
+            str(APP_REGION_BYTES),
+            "--slot-padding",
+            "0",
+            "--active",
+            str(active),
+        ]
+        for index, uf2_path in built:
+            cmd.extend(["--slot-app", f"{index}={uf2_path}"])
+        if job:
+            job.update(92, "Packaging UF2")
+        run_command(cmd, job)
+        if job:
+            job.update(100, "Generated")
+        return output_path, output_name
+    finally:
+        clean_slot_build_dirs(layout)
 
 
 def start_generate_job(payload: dict) -> BuildJob:
@@ -692,7 +988,9 @@ class Handler(SimpleHTTPRequestHandler):
             if not job or job.status != "done" or not job.output_path or not job.output_path.exists():
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "output not found"})
                 return
-            self.send_download(job.output_path, job.output_name or job.output_path.name)
+            output_path = job.output_path
+            self.send_download(output_path, job.output_name or output_path.name, delete_after=True)
+            job.output_path = None
             return
         if parsed.path == "/api/health":
             self.send_json(HTTPStatus.OK, {"ok": True})
@@ -806,7 +1104,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not head_only:
             self.wfile.write(data)
 
-    def send_download(self, path: Path, filename: str) -> None:
+    def send_download(self, path: Path, filename: str, delete_after: bool = False) -> None:
         data = path.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_cors_headers()
@@ -814,7 +1112,11 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        finally:
+            if delete_after:
+                path.unlink(missing_ok=True)
 
     def guess_type(self, path: str) -> str:
         if path.endswith(".uf2"):
