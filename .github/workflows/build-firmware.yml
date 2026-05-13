@@ -69,6 +69,12 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install "rp2040:rp2040@${ARDUINO_CORE_VERSION}"
 
+      - name: Install Arduino libraries
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install "Adafruit NeoPixel"
+          arduino-cli lib list
+
       - name: Build UF2
         run: |
           ARDUINO_PICO_ROOT="$HOME/.arduino15/packages/rp2040/hardware/rp2040/${ARDUINO_CORE_VERSION}"
