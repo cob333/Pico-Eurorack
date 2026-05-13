@@ -1,0 +1,17 @@
+name = "pico-eurorack-api"
+main = "src/index.js"
+compatibility_date = "2025-04-01"
+
+[[r2_buckets]]
+binding = "BUILDS"
+bucket_name = "pico-eurorack-builds"
+
+[vars]
+GITHUB_OWNER = "cob333"
+GITHUB_REPO = "Pico-Eurorack"
+GITHUB_REF = "main"
+GITHUB_WORKFLOW = "build-firmware.yml"
+ALLOWED_ORIGIN = "https://cob333.github.io"
+MANIFEST_URL = "https://cob333.github.io/Pico-Eurorack/Client/manifest.json"
+MAX_SLOTS = "6"
+MAX_REQUEST_AGE_SECONDS = "5400"

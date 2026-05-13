@@ -95,6 +95,8 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
         raise RuntimeError("missing selector UF2 and cmake is not available to build it")
 
     if not (build_dir / "build.ninja").exists() and not (build_dir / "Makefile").exists():
+        if job:
+            job.update(4, "Configuring selector")
         configure_cmd = [
             "cmake",
             "-S",
@@ -107,6 +109,8 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
             configure_cmd.extend(["-G", "Ninja"])
         run_command(configure_cmd, job)
 
+    if job:
+        job.update(4, "Building selector")
     run_command(["cmake", "--build", str(build_dir), "--target", "pico_selector"], job)
 
 
@@ -339,20 +343,25 @@ def app_size(app: AppDef, build_missing: bool = False) -> dict:
 
 
 def size_probe_uf2(app: AppDef, build_missing: bool = False) -> Path | None:
+    prune_size_cache_root()
     build_path = size_cache_build_path(app)
+    prune_size_cache_build_path(build_path)
     cached = sorted(build_path.glob("*.ino.uf2"))
     if cached:
         return cached[0]
     if not build_missing:
         return None
     try:
-        return build_slot_to_path(
+        uf2_path = build_slot_to_path(
             0,
             app,
             build_path,
             BOOT.PICO_SELECTOR_FIRST_APP_OFFSET,
             APP_REGION_BYTES,
         )
+        prune_size_cache_build_path(build_path)
+        prune_size_cache_root()
+        return uf2_path
     except Exception as exc:
         match = re.search(r"region `FLASH' overflowed by (\d+) bytes", str(exc))
         if match:
@@ -362,6 +371,29 @@ def size_probe_uf2(app: AppDef, build_missing: bool = False) -> Path | None:
 
 def size_cache_build_path(app: AppDef) -> Path:
     return SIZE_CACHE_ROOT / f"slot0-{slug(app.id)}"
+
+
+def prune_size_cache_build_path(build_path: Path) -> None:
+    if not build_path.exists():
+        return
+    for item in build_path.iterdir():
+        if item.is_file() and item.suffix == ".uf2":
+            continue
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink(missing_ok=True)
+
+
+def prune_size_cache_root() -> None:
+    if not SIZE_CACHE_ROOT.exists():
+        return
+    sketches = SIZE_CACHE_ROOT / "_sketches"
+    if sketches.exists():
+        shutil.rmtree(sketches)
+    for item in SIZE_CACHE_ROOT.iterdir():
+        if item.is_file() and item.suffix != ".uf2":
+            item.unlink(missing_ok=True)
 
 
 def manifest_payload() -> dict:
@@ -857,11 +889,14 @@ def build_slot(slot_index: int, app: AppDef, slot_offset: int, slot_size: int, j
     return build_slot_to_path(slot_index, app, build_path, slot_offset, slot_size, job)
 
 
-def plan_layout(selected: list[tuple[int, AppDef]]) -> list[dict]:
+def plan_layout(selected: list[tuple[int, AppDef]], job: BuildJob | None = None) -> list[dict]:
     next_offset = BOOT.PICO_SELECTOR_FIRST_APP_OFFSET
     region_end = BOOT.PICO_SELECTOR_FIRST_APP_OFFSET + APP_REGION_BYTES
     plan = []
-    for slot_index, app in selected:
+    total = max(1, len(selected))
+    for app_index, (slot_index, app) in enumerate(selected):
+        if job:
+            job.update(2, f"Measuring {app.name}")
         size = app_size(app, build_missing=True)
         if not isinstance(size["sizeBytes"], int):
             raise RuntimeError(f"cannot measure {app.name}")
@@ -881,6 +916,8 @@ def plan_layout(selected: list[tuple[int, AppDef]]) -> list[dict]:
             }
         )
         next_offset += allocated
+        if job:
+            job.update(2 + int(((app_index + 1) / total) * 2), f"Measured {app.name}")
     return plan
 
 
@@ -892,11 +929,6 @@ def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path,
         raise RuntimeError("invalid device")
     if not isinstance(slots, list) or not 1 <= len(slots) <= MAX_SLOTS:
         raise RuntimeError(f"slots must contain 1 to {MAX_SLOTS} entries")
-    if job:
-        job.status = "running"
-        job.update(1, "Checking selector")
-    selector_path = selector_uf2_path(job, build_if_missing=True)
-
     selected: list[tuple[int, AppDef]] = []
     for index, app_id in enumerate(slots):
         if app_id in (None, ""):
@@ -919,9 +951,15 @@ def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path,
     if sample_app_ids:
         SAMPLE_LOCK.acquire()
     try:
-        layout = plan_layout(selected)
         if job:
-            job.update(3, "Planning")
+            job.status = "running"
+            job.update(1, "Planning slots")
+        layout = plan_layout(selected, job)
+        if job:
+            job.update(4, "Checking selector")
+        selector_path = selector_uf2_path(job, build_if_missing=True)
+        if job:
+            job.update(5, "Preparing build")
         try:
             built = []
             total_steps = len(layout) + 1

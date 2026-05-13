@@ -1,0 +1,264 @@
+{
+  "apps": [
+    {
+      "id": "TripleOSC",
+      "device": "pico",
+      "name": "TripleOSC",
+      "ok": true,
+      "sizeBytes": 87552,
+      "allocatedBytes": 90112,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-TripleOSC/TripleOSC.ino.uf2"
+    },
+    {
+      "id": "Plaits",
+      "device": "pico",
+      "name": "Plaits",
+      "ok": true,
+      "sizeBytes": 233216,
+      "allocatedBytes": 233472,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Plaits/Plaits.ino.uf2"
+    },
+    {
+      "id": "PlaitsFM",
+      "device": "pico",
+      "name": "PlaitsFM",
+      "ok": true,
+      "sizeBytes": 132608,
+      "allocatedBytes": 135168,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-PlaitsFM/PlaitsFM.ino.uf2"
+    },
+    {
+      "id": "Rings",
+      "device": "pico",
+      "name": "Rings",
+      "ok": true,
+      "sizeBytes": 133120,
+      "allocatedBytes": 135168,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Rings/Rings.ino.uf2"
+    },
+    {
+      "id": "Moogvoice",
+      "device": "pico",
+      "name": "Moogvoice",
+      "ok": true,
+      "sizeBytes": 89856,
+      "allocatedBytes": 90112,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Moogvoice/Moogvoice.ino.uf2"
+    },
+    {
+      "id": "Drums",
+      "device": "pico",
+      "name": "Drums",
+      "ok": true,
+      "sizeBytes": 96256,
+      "allocatedBytes": 98304,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Drums/Drums.ino.uf2"
+    },
+    {
+      "id": "Branches",
+      "device": "pico",
+      "name": "Branches",
+      "ok": true,
+      "sizeBytes": 81920,
+      "allocatedBytes": 81920,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Branches/Branches.ino.uf2"
+    },
+    {
+      "id": "DualClock",
+      "device": "pico",
+      "name": "DualClock",
+      "ok": true,
+      "sizeBytes": 83456,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-DualClock/DualClock.ino.uf2"
+    },
+    {
+      "id": "Sequencer",
+      "device": "pico",
+      "name": "Sequencer",
+      "ok": true,
+      "sizeBytes": 85504,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Sequencer/Sequencer.ino.uf2"
+    },
+    {
+      "id": "MotionRecorder",
+      "device": "pico",
+      "name": "MotionRecorder",
+      "ok": true,
+      "sizeBytes": 81920,
+      "allocatedBytes": 81920,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-MotionRecorder/MotionRecorder.ino.uf2"
+    },
+    {
+      "id": "GridsSampler",
+      "device": "pico",
+      "name": "GridsSampler",
+      "ok": true,
+      "sizeBytes": 1046272,
+      "allocatedBytes": 1048576,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-GridsSampler/GridsSampler.ino.uf2"
+    },
+    {
+      "id": "DejaVu",
+      "device": "pico",
+      "name": "DejaVu",
+      "ok": true,
+      "sizeBytes": 82432,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-DejaVu/DejaVu.ino.uf2"
+    },
+    {
+      "id": "Modulation",
+      "device": "pico",
+      "name": "Modulation",
+      "ok": true,
+      "sizeBytes": 88576,
+      "allocatedBytes": 90112,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Modulation/Modulation.ino.uf2"
+    },
+    {
+      "id": "OneshotSampler",
+      "device": "pico",
+      "name": "OneshotSampler",
+      "ok": true,
+      "sizeBytes": 2504192,
+      "allocatedBytes": 2506752,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-OneshotSampler/OneshotSampler.ino.uf2"
+    },
+    {
+      "id": "Delay",
+      "device": "picofx",
+      "name": "Delay",
+      "ok": true,
+      "sizeBytes": 82432,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Delay/Delay.ino.uf2"
+    },
+    {
+      "id": "Reverb",
+      "device": "picofx",
+      "name": "Reverb",
+      "ok": true,
+      "sizeBytes": 88320,
+      "allocatedBytes": 90112,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Reverb/Reverb.ino.uf2"
+    },
+    {
+      "id": "Chorus",
+      "device": "picofx",
+      "name": "Chorus",
+      "ok": true,
+      "sizeBytes": 82176,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Chorus/Chorus.ino.uf2"
+    },
+    {
+      "id": "Flanger",
+      "device": "picofx",
+      "name": "Flanger",
+      "ok": true,
+      "sizeBytes": 83456,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Flanger/Flanger.ino.uf2"
+    },
+    {
+      "id": "Ladderfilter",
+      "device": "picofx",
+      "name": "Ladderfilter",
+      "ok": true,
+      "sizeBytes": 85760,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Ladderfilter/Ladderfilter.ino.uf2"
+    },
+    {
+      "id": "Bitcrush",
+      "device": "picofx",
+      "name": "Bitcrush",
+      "ok": true,
+      "sizeBytes": 81408,
+      "allocatedBytes": 81920,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Bitcrush/Bitcrush.ino.uf2"
+    },
+    {
+      "id": "Granular",
+      "device": "picofx",
+      "name": "Granular",
+      "ok": true,
+      "sizeBytes": 82944,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Granular/Granular.ino.uf2"
+    },
+    {
+      "id": "BeatBreaker",
+      "device": "picofx",
+      "name": "BeatBreaker",
+      "ok": true,
+      "sizeBytes": 82688,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-BeatBreaker/BeatBreaker.ino.uf2"
+    },
+    {
+      "id": "Sidechain",
+      "device": "picofx",
+      "name": "Sidechain",
+      "ok": true,
+      "sizeBytes": 82688,
+      "allocatedBytes": 86016,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Sidechain/Sidechain.ino.uf2"
+    },
+    {
+      "id": "Panner",
+      "device": "picofx",
+      "name": "Panner",
+      "ok": true,
+      "sizeBytes": 86784,
+      "allocatedBytes": 90112,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Panner/Panner.ino.uf2"
+    },
+    {
+      "id": "Space",
+      "device": "picofx",
+      "name": "Space",
+      "ok": true,
+      "sizeBytes": 89600,
+      "allocatedBytes": 90112,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-Space/Space.ino.uf2"
+    },
+    {
+      "id": "SpectralSmash",
+      "device": "picofx",
+      "name": "SpectralSmash",
+      "ok": true,
+      "sizeBytes": 92160,
+      "allocatedBytes": 94208,
+      "fitsRegion": true,
+      "source": "Bootloader/build/client/sizes/slot0-SpectralSmash/SpectralSmash.ino.uf2"
+    }
+  ]
+}

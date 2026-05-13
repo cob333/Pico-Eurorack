@@ -67,7 +67,7 @@
         bankless: true
       },
       OneshotSampler: {
-        subtitle: "Upload WAV files into an existing or new Oneshot bank.",
+        subtitle: "Upload WAV files.",
         bankless: false
       }
     };
@@ -78,7 +78,7 @@
       slotAlignBytes: 4096,
       maxSlots: 6,
       appsByName: new Map(),
-      baseUrl: null
+      baseUrl: window.PICO_API_BASE || null
     };
     const sampleState = {
       app: "",

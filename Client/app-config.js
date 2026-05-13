@@ -7,6 +7,8 @@
   Pico-Eurorack Bootloader Apps client app catalog, page parameters, hardware notes, and LED themes.
 */
 
+    window.PICO_API_BASE = window.PICO_API_BASE || "";
+
     function app(name, description, pages, hardware, information = info(false, "")) {
       return { name, description, pages, hardware, info: information };
     }
