@@ -1071,29 +1071,62 @@
 
     .module {
       position: relative;
-      width: min(130px, 13vw);
-      min-width: 88px;
+      width: min(140px, 13vw);
+      min-width: 90px;
       justify-self: center;
       margin-inline: auto;
+      --led-color: #ff3b30;
+      --led-hot: #ffd1cc;
+      --led-dark: #9f1d15;
+      --led-glow: rgba(255, 59, 48, 0.42);
+      --led-glow-soft: rgba(255, 59, 48, 0.24);
+      --led-x: 50%;
+      --led-y: 20.6%;
       --focus-x: 50%;
       --focus-y: 50%;
       --focus-scale: 1;
     }
 
+    .module-stage {
+      position: relative;
+      isolation: isolate;
+      width: 100%;
+      max-height: calc(var(--column-height) - 16px);
+      transform: scale(var(--focus-scale));
+      transform-origin: var(--focus-x) var(--focus-y);
+      transition: transform 0.24s ease, transform-origin 0.24s ease, filter 0.24s ease;
+    }
+
     .module img {
+      position: relative;
+      z-index: 1;
       width: 100%;
       max-height: calc(var(--column-height) - 16px);
       display: block;
       object-fit: contain;
       object-position: top center;
       filter: drop-shadow(0 26px 38px rgba(0, 0, 0, 0.2));
-      transform: scale(var(--focus-scale));
-      transform-origin: var(--focus-x) var(--focus-y);
-      transition: transform 0.24s ease, transform-origin 0.24s ease, filter 0.24s ease;
     }
 
     .module.focusing img {
       filter: drop-shadow(0 30px 46px rgba(0, 0, 0, 0.26));
+    }
+
+    .module-led {
+      position: absolute;
+      left: var(--led-x);
+      top: var(--led-y);
+      z-index: 3;
+      width: 15px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, var(--led-hot) 0 24%, var(--led-color) 58%, var(--led-dark) 100%);
+      box-shadow:
+        0 0 8px 3px var(--led-glow),
+        0 0 22px 8px var(--led-glow-soft);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
     }
 
     .selected-title {
@@ -1198,6 +1231,7 @@
       transform: translateY(-6px) scale(0.98);
       transform-origin: top right;
       transition: opacity 0.18s ease, transform 0.18s ease;
+      white-space: pre-line;
     }
 
     .info-button:hover .info-popover,

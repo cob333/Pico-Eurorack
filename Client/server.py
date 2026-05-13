@@ -31,14 +31,13 @@ ROOT = Path(__file__).resolve().parents[1]
 CLIENT_DIR = ROOT / "Client"
 BOOT_TOOL = ROOT / "Bootloader" / "Tools" / "pico_boot_apps.py"
 SELECTOR_UF2_ENV = "PICO_SELECTOR_UF2"
-DEFAULT_SELECTOR_UF2 = ROOT / "Bootloader" / "build" / "Pico_Firmware_selector_only.uf2"
 SELECTOR_UF2_CANDIDATES = [
-    DEFAULT_SELECTOR_UF2,
     ROOT / "Bootloader" / "build" / "Pico_Firmware.uf2",
     ROOT / "Bootloader" / "build" / "pico_selector.uf2",
 ]
 BUILD_ROOT = ROOT / "Bootloader" / "build" / "client"
 SIZE_CACHE_ROOT = BUILD_ROOT / "sizes"
+SAMPLE_DEFAULT_ROOT = BUILD_ROOT / "sample-defaults"
 APP_REGION_BYTES = 3584 * 1024
 SLOT_ALIGN_BYTES = 4096
 MAX_SLOTS = 6
@@ -182,6 +181,7 @@ SAMPLE_APPS = {
     "GridsSampler": ROOT / "Sketches" / "Pico" / "GridsSampler" / "Samples",
     "OneshotSampler": ROOT / "Sketches" / "Pico" / "OneshotSampler" / "Samples",
 }
+SAMPLE_LOCK = threading.RLock()
 
 
 class BuildCancelled(RuntimeError):
@@ -315,9 +315,9 @@ def read_app_size(path: Path) -> dict:
     return payload
 
 
-def app_size(app: AppDef) -> dict:
+def app_size(app: AppDef, build_missing: bool = False) -> dict:
     try:
-        path = size_probe_uf2(app)
+        path = size_probe_uf2(app, build_missing=build_missing)
         if path is None and app.prebuilt_path and app.prebuilt_path.exists():
             path = app.prebuilt_path
     except SizeOverflow as exc:
@@ -338,11 +338,13 @@ def app_size(app: AppDef) -> dict:
     return read_app_size(path)
 
 
-def size_probe_uf2(app: AppDef) -> Path | None:
+def size_probe_uf2(app: AppDef, build_missing: bool = False) -> Path | None:
     build_path = size_cache_build_path(app)
     cached = sorted(build_path.glob("*.ino.uf2"))
     if cached:
         return cached[0]
+    if not build_missing:
+        return None
     try:
         return build_slot_to_path(
             0,
@@ -365,7 +367,7 @@ def size_cache_build_path(app: AppDef) -> Path:
 def manifest_payload() -> dict:
     apps = []
     for app in APPS:
-        apps.append(app_payload(app))
+        apps.append(app_payload(app, build_missing=False))
     try:
         selector_path = display_path(selector_uf2_path())
     except RuntimeError:
@@ -381,14 +383,14 @@ def manifest_payload() -> dict:
     }
 
 
-def app_payload(app: AppDef) -> dict:
+def app_payload(app: AppDef, build_missing: bool = False) -> dict:
     row = {
         "id": app.id,
         "device": app.device,
         "name": app.name,
         "sketch": app.sketch,
     }
-    row.update(app_size(app))
+    row.update(app_size(app, build_missing=build_missing))
     return row
 
 
@@ -501,6 +503,57 @@ def samples_payload(app_id: str) -> dict:
     }
 
 
+def sample_copy_ignore(_dir: str, names: list[str]) -> set[str]:
+    ignored = {".DS_Store", "__pycache__"}
+    ignored.update(name for name in names if name.startswith("build_"))
+    return ignored
+
+
+def sample_default_path(app_id: str) -> Path:
+    return SAMPLE_DEFAULT_ROOT / app_id
+
+
+def sample_tree_signature(path: Path) -> list[tuple[str, int]]:
+    if not path.exists():
+        return []
+    rows = []
+    for item in sorted(path.rglob("*")):
+        if item.is_dir() or item.name == ".DS_Store" or item.name.startswith("build_"):
+            continue
+        rows.append((str(item.relative_to(path)), item.stat().st_size))
+    return rows
+
+
+def ensure_sample_defaults() -> None:
+    SAMPLE_DEFAULT_ROOT.mkdir(parents=True, exist_ok=True)
+    for app_id, source in SAMPLE_APPS.items():
+        snapshot = sample_default_path(app_id)
+        if snapshot.exists():
+            if sample_tree_signature(source) != sample_tree_signature(snapshot):
+                restore_sample_default(app_id)
+            continue
+        if not source.exists():
+            continue
+        shutil.copytree(source, snapshot, ignore=sample_copy_ignore)
+
+
+def restore_sample_default(app_id: str) -> bool:
+    source = SAMPLE_APPS.get(app_id)
+    snapshot = sample_default_path(app_id)
+    if not source or not snapshot.exists():
+        return False
+    if source.exists():
+        shutil.rmtree(source)
+    shutil.copytree(snapshot, source, ignore=sample_copy_ignore)
+    invalidate_app_build_cache(app_id)
+    return True
+
+
+def restore_sample_defaults(app_ids: set[str]) -> None:
+    for app_id in sorted(app_ids):
+        restore_sample_default(app_id)
+
+
 def invalidate_size_cache(app_id: str) -> None:
     cache = SIZE_CACHE_ROOT / f"slot0-{slug(app_id)}"
     if cache.exists():
@@ -581,53 +634,55 @@ def rebuild_sample_headers(app_id: str) -> None:
 
 
 def upload_samples(app_id: str, bank: str, fields: cgi.FieldStorage) -> dict:
-    root = SAMPLE_APPS.get(app_id)
-    if not root:
-        raise RuntimeError(f"sample app not supported: {app_id}")
-    target_bank = root if app_id == "GridsSampler" else root / safe_segment(bank)
-    target_bank.mkdir(parents=True, exist_ok=True)
+    with SAMPLE_LOCK:
+        root = SAMPLE_APPS.get(app_id)
+        if not root:
+            raise RuntimeError(f"sample app not supported: {app_id}")
+        target_bank = root if app_id == "GridsSampler" else root / safe_segment(bank)
+        target_bank.mkdir(parents=True, exist_ok=True)
 
-    file_fields = fields["files"] if "files" in fields else []
-    if not isinstance(file_fields, list):
-        file_fields = [file_fields]
-    saved = []
-    for item in file_fields:
-        if not getattr(item, "filename", ""):
-            continue
-        filename = safe_filename(item.filename)
-        target = target_bank / filename
-        with target.open("wb") as out:
-            shutil.copyfileobj(item.file, out)
-        saved.append(filename)
-    if not saved:
-        raise RuntimeError("no .wav files uploaded")
+        file_fields = fields["files"] if "files" in fields else []
+        if not isinstance(file_fields, list):
+            file_fields = [file_fields]
+        saved = []
+        for item in file_fields:
+            if not getattr(item, "filename", ""):
+                continue
+            filename = safe_filename(item.filename)
+            target = target_bank / filename
+            with target.open("wb") as out:
+                shutil.copyfileobj(item.file, out)
+            saved.append(filename)
+        if not saved:
+            raise RuntimeError("no .wav files uploaded")
 
-    rebuild_sample_headers(app_id)
-    payload = samples_payload(app_id)
-    payload["saved"] = saved
-    payload["bank"] = target_bank.name
-    return payload
+        rebuild_sample_headers(app_id)
+        payload = samples_payload(app_id)
+        payload["saved"] = saved
+        payload["bank"] = target_bank.name
+        return payload
 
 
 def delete_sample_bank(app_id: str, bank: str) -> dict:
-    if app_id != "OneshotSampler":
-        raise RuntimeError("bank deletion is only supported for OneshotSampler")
-    root = SAMPLE_APPS.get(app_id)
-    if not root:
-        raise RuntimeError(f"sample app not supported: {app_id}")
-    bank_name = safe_segment(bank)
-    target = (root / bank_name).resolve()
-    try:
-        target.relative_to(root.resolve())
-    except ValueError as exc:
-        raise RuntimeError("invalid bank path") from exc
-    if not target.is_dir():
-        raise RuntimeError(f"bank not found: {bank_name}")
-    shutil.rmtree(target)
-    rebuild_sample_headers(app_id)
-    payload = samples_payload(app_id)
-    payload["deleted"] = bank_name
-    return payload
+    with SAMPLE_LOCK:
+        if app_id != "OneshotSampler":
+            raise RuntimeError("bank deletion is only supported for OneshotSampler")
+        root = SAMPLE_APPS.get(app_id)
+        if not root:
+            raise RuntimeError(f"sample app not supported: {app_id}")
+        bank_name = safe_segment(bank)
+        target = (root / bank_name).resolve()
+        try:
+            target.relative_to(root.resolve())
+        except ValueError as exc:
+            raise RuntimeError("invalid bank path") from exc
+        if not target.is_dir():
+            raise RuntimeError(f"bank not found: {bank_name}")
+        shutil.rmtree(target)
+        rebuild_sample_headers(app_id)
+        payload = samples_payload(app_id)
+        payload["deleted"] = bank_name
+        return payload
 
 
 def existing_libraries() -> list[Path]:
@@ -807,7 +862,7 @@ def plan_layout(selected: list[tuple[int, AppDef]]) -> list[dict]:
     region_end = BOOT.PICO_SELECTOR_FIRST_APP_OFFSET + APP_REGION_BYTES
     plan = []
     for slot_index, app in selected:
-        size = app_size(app)
+        size = app_size(app, build_missing=True)
         if not isinstance(size["sizeBytes"], int):
             raise RuntimeError(f"cannot measure {app.name}")
         allocated = align_up(size["sizeBytes"], SLOT_ALIGN_BYTES)
@@ -860,60 +915,70 @@ def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path,
     if active not in valid_slots:
         active = selected[0][0]
 
-    layout = plan_layout(selected)
-    if job:
-        job.update(3, "Planning")
+    sample_app_ids = {app.id for _index, app in selected if app.id in SAMPLE_APPS}
+    if sample_app_ids:
+        SAMPLE_LOCK.acquire()
     try:
-        built = []
-        total_steps = len(layout) + 1
-        for step_index, item in enumerate(layout):
-            if job and job.cancel_requested:
-                raise BuildCancelled("cancelled")
-            if job:
-                start_percent = 5 + int((step_index / total_steps) * 85)
-                job.update(start_percent, f"Building {item['app'].name}")
-            uf2_path = build_slot(item["slot"], item["app"], item["offset"], item["size"], job)
-            size_bytes = BOOT.app_usage_bytes(BOOT.read_uf2(uf2_path))
-            if size_bytes > item["size"]:
-                raise RuntimeError(f"slot {item['slot'] + 1} app exceeds its allocated region")
-            built.append((item["slot"], uf2_path))
-            if job:
-                done_percent = 5 + int(((step_index + 1) / total_steps) * 85)
-                job.update(done_percent, f"Built {item['app'].name}")
+        layout = plan_layout(selected)
+        if job:
+            job.update(3, "Planning")
+        try:
+            built = []
+            total_steps = len(layout) + 1
+            for step_index, item in enumerate(layout):
+                if job and job.cancel_requested:
+                    raise BuildCancelled("cancelled")
+                if job:
+                    start_percent = 5 + int((step_index / total_steps) * 85)
+                    job.update(start_percent, f"Building {item['app'].name}")
+                uf2_path = build_slot(item["slot"], item["app"], item["offset"], item["size"], job)
+                size_bytes = BOOT.app_usage_bytes(BOOT.read_uf2(uf2_path))
+                if size_bytes > item["size"]:
+                    raise RuntimeError(f"slot {item['slot'] + 1} app exceeds its allocated region")
+                built.append((item["slot"], uf2_path))
+                if job:
+                    done_percent = 5 + int(((step_index + 1) / total_steps) * 85)
+                    job.update(done_percent, f"Built {item['app'].name}")
 
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        output_name = f"Pico-Eurorack-{device}-{timestamp}.uf2"
-        output_path = BUILD_ROOT / "output" / output_name
-        clean_output_dir(keep=output_path)
-        cmd = [
-            sys.executable,
-            str(BOOT_TOOL),
-            "package",
-            "--selector",
-            str(selector_path),
-            "--output",
-            str(output_path),
-            "--target",
-            DEFAULT_TARGET,
-            "--cpu-hz",
-            str(DEFAULT_CPU_HZ),
-            "--app-region-size",
-            str(APP_REGION_BYTES),
-            "--slot-padding",
-            "0",
-            "--active",
-            str(active),
-        ]
-        for index, uf2_path in built:
-            cmd.extend(["--slot-app", f"{index}={uf2_path}"])
-        if job:
-            job.update(92, "Packaging UF2")
-        run_command(cmd, job)
-        if job:
-            job.update(100, "Generated")
-        return output_path, output_name
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            output_name = f"Pico-Eurorack-{device}-{timestamp}.uf2"
+            output_path = BUILD_ROOT / "output" / output_name
+            clean_output_dir(keep=output_path)
+            cmd = [
+                sys.executable,
+                str(BOOT_TOOL),
+                "package",
+                "--selector",
+                str(selector_path),
+                "--output",
+                str(output_path),
+                "--target",
+                DEFAULT_TARGET,
+                "--cpu-hz",
+                str(DEFAULT_CPU_HZ),
+                "--app-region-size",
+                str(APP_REGION_BYTES),
+                "--slot-padding",
+                "0",
+                "--active",
+                str(active),
+            ]
+            for index, uf2_path in built:
+                cmd.extend(["--slot-app", f"{index}={uf2_path}"])
+            if job:
+                job.update(92, "Packaging UF2")
+            run_command(cmd, job)
+            if job:
+                job.update(100, "Generated")
+            return output_path, output_name
+        finally:
+            clean_slot_build_dirs(layout)
     finally:
-        clean_slot_build_dirs(layout)
+        if sample_app_ids:
+            if job:
+                job.update(98, "Restoring samples")
+            restore_sample_defaults(sample_app_ids)
+            SAMPLE_LOCK.release()
 
 
 def start_generate_job(payload: dict) -> BuildJob:
@@ -970,7 +1035,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if not app:
                     self.send_json(HTTPStatus.NOT_FOUND, {"error": "app not found"})
                     return
-                self.send_json(HTTPStatus.OK, app_payload(app))
+                self.send_json(HTTPStatus.OK, app_payload(app, build_missing=True))
             except Exception as exc:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
@@ -1125,6 +1190,8 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    with SAMPLE_LOCK:
+        ensure_sample_defaults()
     port = 8765
     if len(sys.argv) > 1:
         port = int(sys.argv[1])

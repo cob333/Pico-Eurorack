@@ -1,18 +1,82 @@
 # Pico-Eurorack
 
+[中文](README_CN.md) | English
+
 ![Pico_Icon](./images/Pico_Icon.jpg)
 
-Arduino sketches for `2HPico` and `2HPico DSP` Eurorack modules; source code lives in `Sketches/` and prebuilt `uf2` firmware lives in `Build/`.
+Arduino sketches for `2HPico` and `2HPico DSP` Eurorack modules; source code lives in `Sketches/`.
+This repository also includes a friendly Web client for browsing module descriptions, editing sampler content, selecting up to 6 Bootloader app slots, and generating a drag-and-drop `.uf2` firmware file.
 
 This is an alternative set of sketches for the 2HPico and 2HPico DSP modules by rich hesslip. See the original sketches at: 
 https://github.com/rheslip/2HPico-DSP-Sketches; 
 https://github.com/rheslip/2HPico-Sketches;
 
 What's the difference?
+friendly Web client;
 more sketches;
 more color options; 
-easy-to-use calibration sketches;
 Unified file structure for both Pico and PicoFX sketches;
+
+## Web Client
+
+The client lives in `Client/`. Its backend calls `Bootloader/Tools/pico_boot_apps.py` to compile the selected sketches, then packages the Bootloader selector and app slots into one `.uf2` file.
+
+### Run
+
+From the repository root:
+
+```sh
+python3 Client/server.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8765/
+```
+
+If port `8765` is already in use, the backend automatically tries the next ports and prints the actual URL in the terminal.
+
+### Workflow
+
+1. Choose `Pico` or `PicoFX` in the upper-right corner.
+2. Browse functions in `App Catalog`; each card shows the current firmware size estimate.
+3. Drag functions into the Slots area, or remove functions from Slots.
+4. The capacity bar shows `used / 3.5MiB`. When the selected apps exceed the storage limit, `Generate` turns gray and cannot be clicked; when the size is valid, the button turns green.
+5. After clicking `Generate`, the page shows a build progress bar. Click the cross icon on the right side to cancel the build.
+6. When the build finishes, the browser immediately downloads the generated `.uf2`.
+
+### Sampler Apps
+
+`GridsSampler` and `OneshotSampler` include sample editing entry points:
+
+- `GridsSampler`: uploaded WAV files are added to the current sample library. It does not split samples into Banks; the backend reads the library from `Samples/Samples.h` or `Samples/samples.h`.
+- `OneshotSampler`: supports uploading WAV files to Banks, listing Banks, and deleting Banks.
+
+The current default `GridsSampler` library uses the `TR-808` samples from `OneshotSampler`; `OneshotSampler` keeps `TR-606`, `TR-808`, and `TR-909` as default Banks.
+
+### Build And Cache Directories
+
+The client uses these directories as temporary build areas:
+
+- `Bootloader/build/client/sizes/`: size-estimate cache; keeps only each app's `.ino.uf2`.
+- `Bootloader/build/client/slotN-AppName/`: temporary compile directory used during Generate; removed automatically after Generate finishes.
+- `Bootloader/build/client/output/`: temporary final `.uf2` download directory; removed automatically after the browser download starts.
+- `Bootloader/build/client/sample-defaults/`: backend default sample snapshot used to restore the default samples for `GridsSampler` and `OneshotSampler`.
+
+The home page only reads existing size caches and does not auto-compile missing sizes. If an app card shows `Build`, click Upload in the sampler panel to trigger a size estimate, or let the backend measure it on demand during Generate.
+
+### Requirements
+
+Firmware generation requires the local machine to have:
+
+- `python3`
+- `arduino-cli`
+- Arduino-Pico core, for example `rp2040:rp2040`
+- Pico SDK / CMake for building the Bootloader selector
+- This repository's `Sketches/lib` and the required Arduino libraries
+
+If the selector UF2 is missing, the backend tries to build it automatically from `Bootloader/Selector`.
 
 ## Pico
 

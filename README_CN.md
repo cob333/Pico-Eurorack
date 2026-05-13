@@ -1,17 +1,82 @@
 # Pico-Eurorack
+
+中文 | [English](README.md)
+
 ![Pico_Icon](./images/Pico_Icon.jpg)
 
-这是一个面向 `2HPico` 和 `2HPico DSP` Eurorack 模块的脚本仓库，源码位于 `Sketches/`，预编译好的 `uf2` 固件位于 `Build/`。
+这是一个面向 `2HPico` 和 `2HPico DSP` Eurorack 模块的脚本仓库，源码位于 `Sketches/`。
+该仓库带有一个用户友好的 Web 客户端，可以浏览模块说明、编辑采样、选择最多 6 个功能加入 Bootloader 槽位，并生成可直接拖拽烧录的 `.uf2` 固件。
 
 这是 2HPico 与 2HPico DSP 的一套二次开发脚本集合，原始仓库见：
 https://github.com/rheslip/2HPico-DSP-Sketches;
 https://github.com/rheslip/2HPico-Sketches;
 
 这个仓库有什么区别？
+用户友好的客户端;
 更多脚本；
 更多颜色选项；
-更易用的校准 sketch；
 为 Pico 与 PicoFX sketch 提供统一的文件结构；
+
+## Web 客户端
+
+客户端位于 `Client/`，后端会调用 `Bootloader/Tools/pico_boot_apps.py` 编译选中的 sketch，并把 Bootloader selector 与多个 app slot 打包成一个 `.uf2` 文件。
+
+### 启动
+
+在仓库根目录运行：
+
+```sh
+python3 Client/server.py
+```
+
+启动后打开：
+
+```text
+http://127.0.0.1:8765/
+```
+
+如果 `8765` 被占用，后端会自动尝试后续端口，终端中会打印实际访问地址。
+
+### 使用流程
+
+1. 在右上角选择 `Pico` 或 `PicoFX`。
+2. 在 `App Catalog` 中浏览功能；每个功能卡片会显示当前固件容量估算。
+3. 将功能拖入上方 Slots，或从 Slots 中删除不需要的功能。
+4. 容量条会显示 `已占用 / 3.5MiB`。超过上限时 `Generate` 会变灰且不可点击；容量允许时按钮为绿色。
+5. 点击 `Generate` 后，页面会显示编译进度条；点击右侧叉号可取消编译。
+6. 编译完成后浏览器会立即下载生成的 `.uf2`。
+
+### 采样功能
+
+`GridsSampler` 与 `OneshotSampler` 带有采样编辑入口：
+
+- `GridsSampler`：上传的 WAV 会加入当前采样库，不做 Bank 区分，后端读取 `Samples/Samples.h` 或 `Samples/samples.h` 中的库文件。
+- `OneshotSampler`：支持 Bank 列表、删除 Bank。
+
+当前 `GridsSampler` 的默认采样库使用 `OneshotSampler` 中的 `TR-808` 采样；`OneshotSampler` 默认保留 `TR-606`、`TR-808`、`TR-909` Bank。
+
+### 生成与缓存
+
+客户端使用以下目录作为临时构建区：
+
+- `Bootloader/build/client/sizes/`：容量估算缓存，只保留各 app 的 `.ino.uf2`。
+- `Bootloader/build/client/slotN-AppName/`：Generate 过程中的临时编译目录，生成结束后会自动删除。
+- `Bootloader/build/client/output/`：最终 `.uf2` 的临时下载目录，浏览器下载后会自动删除。
+- `Bootloader/build/client/sample-defaults/`：后端默认采样快照，用于恢复 `GridsSampler` 和 `OneshotSampler` 的默认采样。
+
+首页加载只读取已有容量缓存，不会自动编译缺失容量；如果某个功能显示 `Build`，可以在采样面板点击 Upload 触发容量测算，或在 Generate 时由后端按需测算。
+
+### 环境要求
+
+生成固件需要本机安装并配置：
+
+- `python3`
+- `arduino-cli`
+- Arduino-Pico core，例如 `rp2040:rp2040`
+- Pico SDK / CMake，用于构建 Bootloader selector
+- 本仓库的 `Sketches/lib` 与 Arduino 库目录
+
+如果 selector UF2 不存在，后端会尝试从 `Bootloader/Selector` 自动构建；
 
 ## Pico
 
@@ -53,3 +118,10 @@ https://github.com/rheslip/2HPico-Sketches;
 ## Test
 1. Button: 一个简单的硬件测试程序，每次按下按钮都会切换前面板 RGB LED 的颜色；
 2. Calibration: 一个 DAC 校准工具，可在 Pico 的两路 CV 输出上输出固定参考电压；
+
+## Credits
+- 感谢 Rich Hesslip 提供原始 2HPico 与 2HPico DSP 库和 sketches；
+- 感谢 Mutable Instruments，其原始模块启发了本仓库中的许多 sketches；
+- 感谢开源 Arduino 与 TinyUSB 社区提供相关工具；
+- 感谢 SYNSO 提供 DRUMS sketch；
+- 感谢你查看并支持开源 Eurorack 开发~

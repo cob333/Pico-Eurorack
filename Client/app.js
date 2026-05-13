@@ -7,137 +7,6 @@
   Pico-Eurorack Bootloader Apps client behavior.
 */
 
-    const DATA = {
-      pico: {
-        label: "Pico",
-        image: "../images/Pico_2D.png",
-        apps: [
-          app("TripleOSC", "Three oscillator voice", [
-            page("RED", ["Waveform: Sine / Triangle / Saw / Ramp", "Oscillator 1 tuning", "Oscillator 2 tuning", "Oscillator 3 tuning"])
-          ], io("V/Oct in", "Unused", "FM in", "Audio out"), info(false, "")),
-          app("Plaits", "Macro oscillator", [
-            page("Model", ["Pitch +/- 12 semitones", "Harmonics", "Timbre", "Morph"]),
-            page("Hold", ["Octave -3 to +5", "Main / Aux output mix", "LPG response", "LPG time / decay"])
-          ], io("Trigger in", "Click to change models, double click to change between 3 banks", "V/Oct in", "Audio out"), info(true, "FM models are seperated in PlaitsFM")),
-          app("PlaitsFM", "Six-op FM voice", [
-            page("Bank", ["Pitch +/- 12 semitones", "Patch number", "Timbre / operator feedback", "Morph / decay character"]),
-            page("Hold", ["Octave -3 to +5", "Unused", "Unused", "Unused"])
-          ], io("Trigger in", "Click patch bank, hold page 2", "V/Oct in", "Audio out"), info(false, "")),
-          app("Rings", "Resonator", [
-            page("RED", ["Position", "Structure", "Brightness", "Frequency"]),
-            page("VIOLET", ["Position", "Slide", "Polyphony", "Resonator type"])
-          ], io("Trigger in", "Click to change pages", "V/Oct in", "Audio out"), info(true, "Polyphony Models indicates colors: Mono(Green), Dual(Orange), Quad(Red)")),
-          app("Moogvoice", "Three oscillator subtractive voice", [
-            page("RED", ["Oscillator 1 tuning", "Oscillator 2 tuning", "Oscillator 3 tuning", "Waveform"]),
-            page("ORANGE", ["Filter frequency", "Filter resonance", "Envelope depth", "LFO depth"]),
-            page("GREEN", ["Attack", "Decay", "Sustain", "Release"]),
-            page("BLUE", ["LFO frequency", "LFO waveform", "Unused", "Unused"])
-          ], io("Trigger in", "Click to change pages", "V/Oct in", "Audio out"), info(false, "")),
-          app("Drums", "Drum voice", [
-            page("808Kick(RED)", ["Output level", "Tone", "Decay", "Frequency"]),
-            page("909Kick(ORANGE)", ["Output level", "Tone", "Decay", "Frequency"]),
-            page("Hihats(YELLOW)", ["Output level", "Tone", "Decay", "Frequency"]),
-            page("Snare(AQUA)", ["Output level", "Tone", "Decay", "Frequency"])
-          ], io("Trigger in", "Click to change models", "FM in", "Audio out"), info(true, "Drums: Drum voice. 4 pages. Click to change models")),
-          app("Branches", "Bernoulli gate", [
-            page("RED/GREEN", ["Probability", "Output level 0-5V", "Unused", "Unused"])
-          ], io("Trigger in", "Short click to change modes, long press to change output types", "Trigger in", "Green output"), info(true, "Bernoulli gate divide an input into 2")),
-          app("DualClock", "Dual clock generator", [
-            page("CLOCK", ["Clock 1 tempo / ratio", "Clock 2 tempo / ratio", "Clock 1 swing", "Clock 2 random timing"])
-          ], io("Clock in", "Tap tempo, hold 3s to change sync mode", "External clock in", "Clock 2 out"), info(true, "DualClock: Dual clock generator. 1 page. Tap tempo, hold 3s to change sync mode")),
-          app("Sequencer", "Pitch and gate sequencer", [
-            page("Steps 1-4", ["Step 1 pitch", "Step 2 pitch", "Step 3 pitch", "Step 4 pitch"]),
-            page("Steps 5-8", ["Step 5 pitch", "Step 6 pitch", "Step 7 pitch", "Step 8 pitch"]),
-            page("Steps 9-12", ["Step 9 pitch", "Step 10 pitch", "Step 11 pitch", "Step 12 pitch"]),
-            page("Steps 13-16", ["Step 13 pitch", "Step 14 pitch", "Step 15 pitch", "Step 16 pitch"]),
-            page("Global", ["Scale", "Clock divider", "Steps 1-16", "Overall pitch"])
-          ], io("Clock in", "Short press pages, hold ratchet edit", "Gate out", "V/oct out"), info(true, "Sequencer: Pitch and gate sequencer. 5 pages. Short press pages, hold ratchet edit")),
-          app("MotionRecorder", "Dual channel CV motion recorder", [
-            page("Motion", ["Manual CV 1 motion", "Manual CV 2 motion", "Sequence length", "Motion smoothing"])
-          ], io("Clock input", "Press to start a new recording", "CV 1 out", "CV 2 out"), info(true, "MotionRecorder: Dual channel CV motion recorder. 1 page. Press to start a new recording")),
-          app("GridsSampler", "Random sample sequencer", [
-            page("RED", ["Drum Map X", "Drum Map Y", "Chaos", "Random sample possibility on channel 4"]),
-            page("GREEN", ["Channel 1 fill", "Channel 2 fill", "Channel 3 fill", "Channel 4 fill"]),
-            page("AQUA", ["Channel 1 sample", "Channel 2 sample", "Channel 3 sample", "Channel 4 sample"])
-          ], io("Clock in", "Button changes page", "Reset in", "Audio out"), info(true, "GridsSampler: Random sample sequencer. 3 pages. Button changes page")),
-          app("DejaVu", "Generative sequencer", [
-            page("RED", ["Gate density", "Probability of changing gates", "Note range", "DejaVu memory"]),
-            page("GREEN", ["Unused", "Unused", "Unused", "CV offset"])
-          ], io("Clock in", "Click to change pages", "Gate out", "CV out"), info(true, "DejaVu: Generative sequencer. 2 pages. Click to change pages")),
-          app("Modulation", "ADSR / LFO", [
-            page("ADSR", ["Attack", "Decay", "Sustain", "Release"]),
-            page("LFO", ["Rise", "Fall", "Waveform", "Output level"])
-          ], io("Gate / sync", "Click to change pages", "Gate in", "CV out"), info(true, "Modulation: ADSR / LFO. 2 pages. Click to change pages")),
-          app("OneshotSampler", "One-shot sample player", [
-            page("GREEN", ["Level", "Tone", "CV in target(v/oct or sample selection)", "Pitch"]),
-            page("AQUA", ["Start", "End", "Attack", "Decay"]),
-            page("BLUE", ["Bank", "Sample", "Sample randomness", "Reverse"])
-          ], io("Trigger in", "Button switches pages", "CV in", "Audio out"), info(true, "OneshotSampler: One-shot sample player. 3 pages. Button switches pages"))
-        ]
-      },
-      picofx: {
-        label: "PicoFX",
-        image: "../images/PicoFX_2D.png",
-        apps: [
-          app("Delay", "Mono/stereo delay", [
-            page("MONO", ["Delay time", "Feedback", "Wet / dry blend", "Output level"]),
-            page("STEREO", ["Delay time", "Feedback", "Wet / dry blend", "Output level"])
-          ], io("Audio input", "Button switches pages", "Clock in (Mono) or right audio out (Stereo)", "Left / mono out"), info(true, "Delay: Mono/stereo delay. 2 pages. Button switches pages")),
-          app("Reverb", "Stereo reverb", [
-            page("RED", ["Reverb time", "Filter cutoff", "Wet / dry blend", "Output level"])
-          ], io("Audio / CV input", "Single page", "Audio input", "Left audio out"), info(true, "Reverb: Stereo reverb. 1 page. Single page")),
-          app("Chorus", "Chorus modulation", [
-            page("RED", ["Delay", "Feedback", "LFO frequency", "LFO depth"]),
-            page("GREEN", ["Wet / dry mix", "Output level", "Unassigned", "Unassigned"])
-          ], io("Audio input / right out", "Button changes page", "Audio input", "Left audio out"), info(true, "Chorus: Chorus modulation. 2 pages. Button changes page")),
-          app("Flanger", "Stereo flanger", [
-            page("RED", ["Delay", "Feedback", "LFO frequency", "LFO depth"]),
-            page("GREEN", ["Wet / dry mix", "Output level", "Stereo width", "LFO waveform"])
-          ], io("Audio input / right out", "Button changes page", "Audio input", "Left audio out"), info(true, "Flanger: Stereo flanger. 2 pages. Button changes page")),
-          app("Ladderfilter", "CV-scaled ladder filter", [
-            page("RED", ["Filter resonance", "Initial frequency", "CV scale 0-1.5x", "Output level"])
-          ], io("Audio input", "Single page", "Frequency CV input", "Audio out"), info(true, "Ladderfilter: CV-scaled ladder filter. 1 page. Single page")),
-          app("Bitcrush", "Resolution and downsampling effect", [
-            page("GREEN", ["Resolution 1-16 bit", "Downsampling 1x-20x", "Mix", "Output level"])
-          ], io("Audio input", "Button switches page", "Mix CV input", "Audio out"), info(true, "Bitcrush: Resolution and downsampling effect. 1 page. Button switches page")),
-          app("Granular", "Granular texture processor", [
-            page("RED", ["Grain size", "Grain density", "Grain pitch", "Wet / dry mix"])
-          ], io("Audio input / CV", "Single page", "Audio input", "Left audio out"), info(true, "Granular: Granular texture processor. 1 page. Single page")),
-          app("BeatBreaker", "Clock-sliced beat repeater", [
-            page("RED", ["Break probability", "Reverse probability", "Repeat macro", "Output level"])
-          ], io("Audio input", "Button clears beat history", "Clock input", "Audio out"), info(true, "BeatBreaker: Clock-sliced beat repeater. 1 page. Button clears beat history")),
-          app("Sidechain", "Trigger ducking processor", [
-            page("RED", ["Attack", "Decay", "Knee curve", "Output level"])
-          ], io("Audio input", "Trigger input ducks audio", "Trigger input", "Audio out"), info(true, "Sidechain: Trigger ducking processor. 1 page. Trigger input ducks audio")),
-          app("Panner", "Stereo spreader / panner", [
-            page("SPREAD", ["Width", "Rate", "Delay / LFO shape", "Output level"])
-          ], io("Audio input / right out", "Single page", "Audio input", "Left audio out"), info(true, "Panner: Stereo spreader / panner. 1 page. Single page")),
-          app("Space", "Spectral reverb / space processor", [
-            page("SPACE", ["Size", "Tone", "Modulation", "Wet / dry mix"])
-          ], io("Audio input / right out", "Single page", "Audio input", "Left audio out"), info(true, "Space: Spectral reverb / space processor. 1 page. Single page")),
-          app("SpectralSmash", "Freeze / tear spectral processor", [
-            page("SPECTRAL", ["Warp / tear", "Blur", "Time smear", "Wet / dry mix"])
-          ], io("Audio input / right out", "Short press freeze, hold recaptures", "Audio input", "Left audio out"), info(true, "SpectralSmash: Freeze / tear spectral processor. 1 page. Short press freeze, hold recaptures"))
-        ]
-      }
-    };
-
-    function app(name, description, pages, hardware, information = info(false, "")) {
-      return { name, description, pages, hardware, info: information };
-    }
-
-    function page(name, params) {
-      return { name, params };
-    }
-
-    function io(input, button, cv, out) {
-      return { cv, input, out, button };
-    }
-
-    function info(enabled, note) {
-      return { enabled, note };
-    }
-
     const APP_INDEX = Object.fromEntries(
       Object.entries(DATA).map(([deviceKey, device]) => [
         deviceKey,
@@ -925,6 +794,7 @@
       const pageData = currentPage();
       const infoData = appData.info || info(false, "");
       const infoMount = document.getElementById("selectedInfoMount");
+      applyLedTheme(pageData.led);
       document.getElementById("selectedName").textContent = appData.name;
       document.getElementById("selectedDescription").textContent = `${appData.description} · ${appSizeLabel(appData)} slot use`;
       renderInfoButton(infoMount, infoData);
@@ -957,6 +827,15 @@
       `).join("");
       bindFunctionFocus();
       updateSegmentSliders();
+    }
+
+    function applyLedTheme(ledData) {
+      const theme = LED_THEMES[ledData?.theme] || LED_THEMES.red;
+      modulePreview.style.setProperty("--led-color", theme.color);
+      modulePreview.style.setProperty("--led-hot", theme.hot);
+      modulePreview.style.setProperty("--led-dark", theme.dark);
+      modulePreview.style.setProperty("--led-glow", theme.glow);
+      modulePreview.style.setProperty("--led-glow-soft", theme.glowSoft);
     }
 
     function renderInfoButton(mount, infoData) {
