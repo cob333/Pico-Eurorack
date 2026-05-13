@@ -2,7 +2,6 @@
 Bootloader/build/_deps/picotool-src/.DS_Store
 __pycache__/
 *.pyc
-Bootloader/build/client/
 .codex
 AGENTS.md
 Reference
