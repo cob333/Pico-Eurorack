@@ -1,5 +1,4 @@
 .DS_Store
-Bootloader/build/_deps/picotool-src/.DS_Store
 __pycache__/
 *.pyc
 .codex

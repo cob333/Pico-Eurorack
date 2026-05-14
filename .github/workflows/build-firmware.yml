@@ -65,6 +65,7 @@ jobs:
       - name: Install Arduino-Pico core
         run: |
           arduino-cli config init --overwrite
+          arduino-cli config set directories.user "$GITHUB_WORKSPACE/.arduino"
           arduino-cli config add board_manager.additional_urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
           arduino-cli core update-index
           arduino-cli core install "rp2040:rp2040@${ARDUINO_CORE_VERSION}"

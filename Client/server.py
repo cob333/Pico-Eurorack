@@ -723,6 +723,8 @@ def existing_libraries() -> list[Path]:
         return LIBRARY_PATHS_CACHE
     candidates = [
         ROOT / "Sketches" / "lib",
+        ROOT / ".arduino" / "libraries",
+        Path.home() / "Arduino" / "libraries",
         Path.home() / "Documents" / "Arduino" / "libraries",
     ]
     LIBRARY_PATHS_CACHE = [path for path in candidates if path.exists()]
