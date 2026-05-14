@@ -72,8 +72,10 @@ jobs:
 
       - name: Install Arduino libraries
         run: |
-          arduino-cli lib update-index
-          arduino-cli lib install "Adafruit NeoPixel"
+          mkdir -p "$GITHUB_WORKSPACE/.arduino/libraries"
+          rm -rf "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel"
+          git clone --depth 1 https://github.com/adafruit/Adafruit_NeoPixel.git "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
           arduino-cli lib list
 
       - name: Build UF2
