@@ -49,6 +49,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show build revision
+        run: |
+          echo "Pico-Eurorack CI library fix marker: 2026-05-14-neopixel-in-sketches-lib"
+          git rev-parse HEAD
+          git status --short
+          nl -ba Client/scripts/github_action_build.py | sed -n '80,115p'
+
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -75,6 +82,7 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/Sketches/lib/Adafruit_NeoPixel"
           git clone --depth 1 https://github.com/adafruit/Adafruit_NeoPixel.git "$GITHUB_WORKSPACE/Sketches/lib/Adafruit_NeoPixel"
           test -f "$GITHUB_WORKSPACE/Sketches/lib/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
+          ls -la "$GITHUB_WORKSPACE/Sketches/lib/Adafruit_NeoPixel"
           arduino-cli lib list
 
       - name: Build UF2
