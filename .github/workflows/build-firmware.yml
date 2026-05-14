@@ -72,19 +72,17 @@ jobs:
 
       - name: Install Arduino libraries
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/.arduino/libraries"
-          rm -rf "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel"
-          git clone --depth 1 https://github.com/adafruit/Adafruit_NeoPixel.git "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel"
-          test -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
+          rm -rf "$GITHUB_WORKSPACE/Sketches/lib/Adafruit_NeoPixel"
+          git clone --depth 1 https://github.com/adafruit/Adafruit_NeoPixel.git "$GITHUB_WORKSPACE/Sketches/lib/Adafruit_NeoPixel"
+          test -f "$GITHUB_WORKSPACE/Sketches/lib/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
           arduino-cli lib list
 
       - name: Build UF2
         run: |
           ARDUINO_PICO_ROOT="$HOME/.arduino15/packages/rp2040/hardware/rp2040/${ARDUINO_CORE_VERSION}"
           export PICO_SDK_PATH="${ARDUINO_PICO_ROOT}/pico-sdk"
-          export PICO_EXTRA_ARDUINO_LIBRARIES="$GITHUB_WORKSPACE/.arduino/libraries"
           export PATH="$HOME/.arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-1aec55e/bin:$PATH"
-          find "$PICO_EXTRA_ARDUINO_LIBRARIES" -maxdepth 2 -name 'Adafruit_NeoPixel.h' -print
+          find "$GITHUB_WORKSPACE/Sketches/lib" -maxdepth 2 -name 'Adafruit_NeoPixel.h' -print
           python3 Client/scripts/github_action_build.py \
             --request-id "${{ inputs.request_id }}" \
             --device "${{ inputs.device }}" \
