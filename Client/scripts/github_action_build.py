@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -65,6 +66,23 @@ def validate_request(device: str, slots: list[str], active: int) -> None:
             raise ValueError(f"{app_id} belongs to {app.device}, not {device}")
 
 
+def verify_action_libraries() -> None:
+    libraries = server.existing_libraries()
+    print("Arduino library search paths:")
+    for library in libraries:
+        print(f"  - {library}")
+
+    neopixel_headers = [library / "Adafruit_NeoPixel" / "Adafruit_NeoPixel.h" for library in libraries]
+    if not any(path.exists() for path in neopixel_headers):
+        configured = os.environ.get("PICO_EXTRA_ARDUINO_LIBRARIES", "")
+        expected = "\n".join(f"  - {path}" for path in neopixel_headers)
+        raise RuntimeError(
+            "Adafruit_NeoPixel.h was not found in the Arduino library search paths.\n"
+            f"PICO_EXTRA_ARDUINO_LIBRARIES={configured!r}\n"
+            f"Checked:\n{expected}"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a Pico-Eurorack UF2 bundle in GitHub Actions")
     parser.add_argument("--request-id", required=True)
@@ -84,6 +102,7 @@ def main() -> None:
     if args.sample_key:
         raise RuntimeError("cloud sample uploads are not enabled in this first deployment")
 
+    verify_action_libraries()
     server.ensure_sample_defaults()
     output_path, output_name = server.generate_firmware(
         {

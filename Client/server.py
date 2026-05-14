@@ -721,13 +721,26 @@ def existing_libraries() -> list[Path]:
     global LIBRARY_PATHS_CACHE
     if LIBRARY_PATHS_CACHE is not None:
         return LIBRARY_PATHS_CACHE
+    extra_libraries = [
+        Path(item).expanduser()
+        for item in os.environ.get("PICO_EXTRA_ARDUINO_LIBRARIES", "").split(os.pathsep)
+        if item
+    ]
     candidates = [
         ROOT / "Sketches" / "lib",
+        *extra_libraries,
         ROOT / ".arduino" / "libraries",
         Path.home() / "Arduino" / "libraries",
         Path.home() / "Documents" / "Arduino" / "libraries",
     ]
-    LIBRARY_PATHS_CACHE = [path for path in candidates if path.exists()]
+    seen = set()
+    LIBRARY_PATHS_CACHE = []
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in seen or not resolved.exists():
+            continue
+        seen.add(resolved)
+        LIBRARY_PATHS_CACHE.append(resolved)
     return LIBRARY_PATHS_CACHE
 
 
