@@ -7,6 +7,9 @@ on:
       - master
     paths:
       - Client/**
+      - Sketches/**
+      - Bootloader/**
+      - workers/pico-eurorack-api/**
       - images/**
       - .github/workflows/pages.yml
   workflow_dispatch:
@@ -23,6 +26,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      ARDUINO_CORE_VERSION: 5.5.0
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -35,13 +41,40 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install Arduino-Pico core
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config set directories.user "$GITHUB_WORKSPACE/.arduino"
+          arduino-cli config add board_manager.additional_urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+          arduino-cli core update-index
+          arduino-cli core install "rp2040:rp2040@${ARDUINO_CORE_VERSION}"
+
+      - name: Install Arduino libraries
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install "Adafruit NeoPixel@1.12.5"
+          git clone https://github.com/rheslip/DaisySP_Teensy.git "$RUNNER_TEMP/DaisySP_Teensy"
+          git -C "$RUNNER_TEMP/DaisySP_Teensy" checkout 002bcbfc7f8a7e7305954b38c2bbbf12a2bd845e
+          cp -R "$RUNNER_TEMP/DaisySP_Teensy/DaisySP" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
+          cp -R "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Utility" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/utility"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/daisysp.h"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/utility/dsp.h"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Synthesis/oscillator.cpp"
+
       - name: Prepare static site
         run: |
+          ARDUINO_PICO_ROOT="$HOME/.arduino15/packages/rp2040/hardware/rp2040/${ARDUINO_CORE_VERSION}"
+          export PICO_SDK_PATH="${ARDUINO_PICO_ROOT}/pico-sdk"
+          export PATH="$HOME/.arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-1aec55e/bin:$PATH"
           rm -rf _site
           mkdir -p _site
           cp -R Client _site/Client
           cp -R images _site/images
-          python3 Client/scripts/export_manifest.py --output _site/Client/manifest.json
+          python3 Client/scripts/export_manifest.py --build-missing --output _site/Client/manifest.json
           touch _site/.nojekyll
           cat > _site/index.html <<'HTML'
           <!doctype html>
@@ -57,6 +90,32 @@ jobs:
           </body>
           </html>
           HTML
+
+      - name: Upload capacity artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pico-capacity-cache
+          path: |
+            _site/Client/manifest.json
+            Bootloader/build/client/sizes
+          retention-days: 30
+
+      - name: Publish capacity summary
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          payload = json.load(open("_site/Client/manifest.json"))
+          measured = [app for app in payload["apps"] if isinstance(app.get("sizeBytes"), int)]
+          unknown = [app for app in payload["apps"] if app.get("sizeBytes") is None]
+          print("## Pico-Eurorack Capacity Manifest")
+          print()
+          print(f"- Measured apps: `{len(measured)}`")
+          print(f"- Unknown apps: `{len(unknown)}`")
+          if unknown:
+              print(f"- Unknown app ids: `{', '.join(app['id'] for app in unknown)}`")
+          print("- Artifact: `pico-capacity-cache`")
+          print("- Published manifest: `_site/Client/manifest.json`")
+          PY
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

@@ -403,10 +403,10 @@ def prune_size_cache_root() -> None:
             item.unlink(missing_ok=True)
 
 
-def manifest_payload() -> dict:
+def manifest_payload(build_missing: bool = False) -> dict:
     apps = []
     for app in APPS:
-        apps.append(app_payload(app, build_missing=False))
+        apps.append(app_payload(app, build_missing=build_missing))
     try:
         selector_path = display_path(selector_uf2_path())
     except RuntimeError:
@@ -429,6 +429,16 @@ def app_payload(app: AppDef, build_missing: bool = False) -> dict:
         "name": app.name,
         "sketch": app.sketch,
     }
+    if build_missing and not app.sketch_path.exists():
+        row.update(
+            {
+                "sizeBytes": None,
+                "allocatedBytes": None,
+                "fitsRegion": None,
+                "source": None,
+            }
+        )
+        return row
     row.update(app_size(app, build_missing=build_missing))
     return row
 
