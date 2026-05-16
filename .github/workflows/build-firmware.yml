@@ -81,10 +81,9 @@ jobs:
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "Adafruit NeoPixel@1.12.5"
-          git clone --depth 1 --branch V1.0.0 https://github.com/electro-smith/DaisySP.git "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
-          if [ -d "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Source" ]; then
-            cp -R "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Source/." "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/"
-          fi
+          git clone https://github.com/rheslip/DaisySP_Teensy.git "$RUNNER_TEMP/DaisySP_Teensy"
+          git -C "$RUNNER_TEMP/DaisySP_Teensy" checkout 002bcbfc7f8a7e7305954b38c2bbbf12a2bd845e
+          cp -R "$RUNNER_TEMP/DaisySP_Teensy/DaisySP" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/daisysp.h"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Synthesis/oscillator.cpp"
