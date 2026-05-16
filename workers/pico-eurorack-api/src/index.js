@@ -266,6 +266,7 @@ async function uploadSamples(request, env) {
     saved.push(filename);
     uploadFiles.push({ name: filename, key, bytes: file.size });
   }
+  const uploadedBytes = uploadFiles.reduce((total, item) => total + item.bytes, 0);
 
   const sampleKey = `samples/uploads/${uploadId}/manifest.json`;
   const manifest = {
@@ -292,6 +293,7 @@ async function uploadSamples(request, env) {
       bankless: true,
       cloud: true,
       sampleKey,
+      uploadedBytes,
       saved,
       bank: ""
     };
@@ -312,6 +314,7 @@ async function uploadSamples(request, env) {
     bankless: false,
     cloud: true,
     sampleKey,
+    uploadedBytes,
     saved,
     bank
   };

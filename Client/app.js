@@ -77,13 +77,15 @@
       storageBytes: DEFAULT_STORAGE_BYTES,
       slotAlignBytes: 4096,
       maxSlots: 6,
+      baseAppsByName: new Map(),
       appsByName: new Map(),
       baseUrl: window.PICO_API_BASE === undefined ? null : window.PICO_API_BASE
     };
     const sampleState = {
       app: "",
       payload: null,
-      sampleKeys: {}
+      sampleKeys: {},
+      capacityBytes: {}
     };
     const PANEL_FOCUS = {
       IN: { x: "50%", y: "3%", scale: 2.5 },
@@ -197,7 +199,11 @@
         apiState.storageBytes = manifest.storageBytes || DEFAULT_STORAGE_BYTES;
         apiState.slotAlignBytes = manifest.slotAlignBytes || 4096;
         apiState.maxSlots = manifest.maxSlots || 6;
-        apiState.appsByName = new Map(manifest.apps.map((item) => [item.name, item]));
+        apiState.baseAppsByName = new Map(manifest.apps.map((item) => [item.name, item]));
+        apiState.appsByName = new Map();
+        apiState.baseAppsByName.forEach((item, name) => {
+          apiState.appsByName.set(name, applySampleCapacityEstimate(item, name));
+        });
         hydrateAppMetadata();
         setStatus("Ready");
       } catch (_error) {
@@ -220,7 +226,8 @@
     function hydrateAppMetadata() {
       Object.values(DATA).forEach((device) => {
         device.apps.forEach((item) => {
-          applyAppMetadata(item, apiState.appsByName.get(item.name));
+          const meta = apiState.baseAppsByName.get(item.name) || apiState.appsByName.get(item.name);
+          applyAppMetadata(item, applySampleCapacityEstimate(meta, item.name));
         });
       });
     }
@@ -234,15 +241,45 @@
 
     function updateCatalogAppMetadata(meta) {
       if (!meta?.name) return;
-      apiState.appsByName.set(meta.name, meta);
+      apiState.baseAppsByName.set(meta.name, meta);
+      const effectiveMeta = applySampleCapacityEstimate(meta, meta.name);
+      apiState.appsByName.set(meta.name, effectiveMeta);
       Object.keys(DATA).forEach((deviceKey) => {
-        const item = APP_INDEX[deviceKey].get(meta.name);
-        if (item) applyAppMetadata(item, meta);
+        const item = APP_INDEX[deviceKey].get(effectiveMeta.name);
+        if (item) applyAppMetadata(item, effectiveMeta);
       });
       renderAppList();
       renderSlots();
       renderDetails();
       updateGenerateAvailability();
+    }
+
+    function alignCapacityBytes(bytes) {
+      const align = Number.isFinite(apiState.slotAlignBytes) && apiState.slotAlignBytes > 0 ? apiState.slotAlignBytes : 4096;
+      return Math.ceil(bytes / align) * align;
+    }
+
+    function applySampleCapacityEstimate(meta, appName) {
+      if (!meta) return meta;
+      const extraBytes = sampleState.capacityBytes[appName] || 0;
+      if (!extraBytes || !Number.isFinite(meta.sizeBytes)) return meta;
+      const sizeBytes = meta.sizeBytes + extraBytes;
+      const allocatedBytes = alignCapacityBytes(sizeBytes);
+      return {
+        ...meta,
+        sizeBytes,
+        allocatedBytes,
+        fitsRegion: allocatedBytes <= apiState.storageBytes,
+        source: `${meta.source || "manifest"} + uploaded samples`
+      };
+    }
+
+    function sampleUploadBytes(payload) {
+      if (Number.isFinite(payload?.uploadedBytes)) return payload.uploadedBytes;
+      if (payload?.bankless) {
+        return (payload.wavs || []).reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+      }
+      return (payload?.banks || []).reduce((total, bank) => total + (Number(bank.bytes) || 0), 0);
     }
 
     function setStatus(message, isError = false) {
@@ -460,6 +497,7 @@
               keys.push(result.sampleKey);
             }
             sampleState.sampleKeys[sampleState.app] = keys;
+            sampleState.capacityBytes[sampleState.app] = (sampleState.capacityBytes[sampleState.app] || 0) + sampleUploadBytes(result);
           }
           sampleFiles.value = "";
           sampleBankName.value = "";
