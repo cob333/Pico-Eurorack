@@ -704,9 +704,12 @@ def rebuild_sample_headers(app_id: str) -> None:
         script = root / "exec"
         if not script.exists():
             raise RuntimeError(f"missing converter script: {script.relative_to(ROOT)}")
+        zsh = shutil.which("zsh")
+        if not zsh:
+            raise RuntimeError("missing zsh: install zsh to rebuild OneshotSampler sample headers")
         env = os.environ.copy()
         env["WAV2HEADER_TOOL"] = str(tool)
-        subprocess.run(["/bin/zsh", str(script)], cwd=root, env=env, check=True)
+        subprocess.run([zsh, str(script)], cwd=root, env=env, check=True)
         clamp_sample_names(root)
     else:
         raise RuntimeError(f"sample app not supported: {app_id}")
