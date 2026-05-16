@@ -93,6 +93,11 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
     build_dir = ROOT / "Bootloader" / "build"
     if shutil.which("cmake") is None:
         raise RuntimeError("missing selector UF2 and cmake is not available to build it")
+    pico_sdk_path = os.environ.get("PICO_SDK_PATH")
+    if not pico_sdk_path:
+        local_sdk = Path.home() / "Library" / "Arduino15" / "packages" / "rp2040" / "hardware" / "rp2040" / "5.5.0" / "pico-sdk"
+        if (local_sdk / "external" / "pico_sdk_import.cmake").exists():
+            pico_sdk_path = str(local_sdk)
 
     if not (build_dir / "build.ninja").exists() and not (build_dir / "Makefile").exists():
         if job:
@@ -105,6 +110,8 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
             str(build_dir),
             "-DPICO_BOARD=pico2",
         ]
+        if pico_sdk_path:
+            configure_cmd.append(f"-DPICO_SDK_PATH={pico_sdk_path}")
         if shutil.which("ninja"):
             configure_cmd.extend(["-G", "Ninja"])
         run_command(configure_cmd, job)

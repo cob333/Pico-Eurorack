@@ -4,11 +4,19 @@ if(NOT DEFINED PICO_BOARD)
   set(PICO_BOARD pico2 CACHE STRING "Pico SDK board target")
 endif()
 
+if(NOT DEFINED PICO_SDK_PATH AND DEFINED ENV{PICO_SDK_PATH})
+  set(PICO_SDK_PATH "$ENV{PICO_SDK_PATH}" CACHE PATH "Pico SDK path from environment")
+endif()
+
 if(NOT DEFINED PICO_SDK_PATH)
   set(_ARDUINO_PICO_SDK "$ENV{HOME}/Library/Arduino15/packages/rp2040/hardware/rp2040/5.5.0/pico-sdk")
-  if(EXISTS "${_ARDUINO_PICO_SDK}/pico_sdk_init.cmake")
+  if(EXISTS "${_ARDUINO_PICO_SDK}/external/pico_sdk_import.cmake")
     set(PICO_SDK_PATH "${_ARDUINO_PICO_SDK}" CACHE PATH "Local Pico SDK path")
   endif()
+endif()
+
+if(NOT EXISTS "${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
+  message(FATAL_ERROR "PICO_SDK_PATH must point to a Pico SDK directory")
 endif()
 
 include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
