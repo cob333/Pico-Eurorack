@@ -42,8 +42,14 @@ export default {
       if (route === "POST /api/generate/cancel") {
         return json({ ok: true, status: "running", message: "Cloud builds cannot be cancelled yet" }, corsHeaders);
       }
-      if (url.pathname.startsWith("/api/samples")) {
-        return json({ error: "cloud sample upload is not enabled yet" }, corsHeaders, 501);
+      if (route === "GET /api/samples") {
+        return json(await getSamples(url, env), corsHeaders);
+      }
+      if (route === "POST /api/samples/upload") {
+        return json(await uploadSamples(request, env), corsHeaders);
+      }
+      if (route === "POST /api/samples/delete-bank") {
+        return json({ error: "cloud sample bank deletion is not enabled yet" }, corsHeaders, 501);
       }
       return json({ error: "not found" }, corsHeaders, 404);
     } catch (error) {
@@ -110,6 +116,7 @@ async function startGenerate(request, env) {
   const payload = await readJson(request);
   const manifest = await getManifest(env);
   const normalized = validateBuildRequest(payload, manifest, env);
+  const sampleKey = await prepareBuildSamples(payload, normalized, env);
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const record = {
@@ -119,10 +126,11 @@ async function startGenerate(request, env) {
     message: "Queued",
     createdAt: now,
     updatedAt: now,
+    sampleKey,
     ...normalized
   };
   await putJson(env, requestKey(id), record);
-  await dispatchWorkflow(env, id, normalized);
+  await dispatchWorkflow(env, id, normalized, sampleKey);
   return { id, status: "queued", progress: 1, message: "Queued" };
 }
 
@@ -174,7 +182,7 @@ function validateBuildRequest(payload, manifest, env) {
   return { device, slots: selected, active };
 }
 
-async function dispatchWorkflow(env, requestId, build) {
+async function dispatchWorkflow(env, requestId, build, sampleKey = "") {
   const owner = env.GITHUB_OWNER;
   const repo = env.GITHUB_REPO;
   const workflow = env.GITHUB_WORKFLOW;
@@ -196,7 +204,7 @@ async function dispatchWorkflow(env, requestId, build) {
           device: build.device,
           slots: build.slots.join(","),
           active: String(build.active),
-          sample_key: ""
+          sample_key: sampleKey
         }
       })
     }
@@ -205,6 +213,155 @@ async function dispatchWorkflow(env, requestId, build) {
     const text = await response.text();
     throw httpError(502, `workflow dispatch failed: ${response.status} ${text.slice(0, 240)}`);
   }
+}
+
+async function getSamples(url, env) {
+  const app = url.searchParams.get("app") || "";
+  if (app === "GridsSampler") {
+    return {
+      app,
+      root: "Sketches/Pico/GridsSampler/Samples",
+      banks: [],
+      libraryFiles: [],
+      wavs: [],
+      bankless: true,
+      cloud: true
+    };
+  }
+  if (app === "OneshotSampler") {
+    return {
+      app,
+      root: "Sketches/Pico/OneshotSampler/Samples",
+      banks: [],
+      bankless: false,
+      cloud: true
+    };
+  }
+  throw httpError(400, `sample app not supported: ${app}`);
+}
+
+async function uploadSamples(request, env) {
+  const form = await request.formData();
+  const app = String(form.get("app") || "").trim();
+  const bank = safeSegment(String(form.get("bank") || "").trim() || "Custom");
+  if (app !== "GridsSampler" && app !== "OneshotSampler") {
+    throw httpError(400, `sample app not supported: ${app}`);
+  }
+  const files = form.getAll("files").filter((item) => isUploadFile(item));
+  if (!files.length) {
+    throw httpError(400, "no .wav files uploaded");
+  }
+
+  const uploadId = crypto.randomUUID();
+  const saved = [];
+  const uploadFiles = [];
+  for (const file of files) {
+    const filename = safeFilename(file.name);
+    const key = `samples/uploads/${uploadId}/${app}/${app === "GridsSampler" ? "" : `${bank}/`}${filename}`;
+    await env.BUILDS.put(key, file.stream(), {
+      httpMetadata: {
+        contentType: file.type || "audio/wav"
+      }
+    });
+    saved.push(filename);
+    uploadFiles.push({ name: filename, key, bytes: file.size });
+  }
+
+  const sampleKey = `samples/uploads/${uploadId}/manifest.json`;
+  const manifest = {
+    version: 1,
+    id: uploadId,
+    createdAt: new Date().toISOString(),
+    uploads: [
+      {
+        app,
+        bank: app === "GridsSampler" ? "" : bank,
+        files: uploadFiles
+      }
+    ]
+  };
+  await putJson(env, sampleKey, manifest);
+
+  if (app === "GridsSampler") {
+    return {
+      app,
+      root: "Sketches/Pico/GridsSampler/Samples",
+      banks: [],
+      libraryFiles: uploadFiles.map((item) => ({ name: item.name, bytes: item.bytes })),
+      wavs: uploadFiles.map((item) => ({ name: item.name, bytes: item.bytes })),
+      bankless: true,
+      cloud: true,
+      sampleKey,
+      saved,
+      bank: ""
+    };
+  }
+
+  return {
+    app,
+    root: "Sketches/Pico/OneshotSampler/Samples",
+    banks: [
+      {
+        name: bank,
+        path: `Sketches/Pico/OneshotSampler/Samples/${bank}`,
+        count: uploadFiles.length,
+        bytes: uploadFiles.reduce((total, item) => total + item.bytes, 0),
+        samples: uploadFiles.map((item) => ({ name: item.name, bytes: item.bytes }))
+      }
+    ],
+    bankless: false,
+    cloud: true,
+    sampleKey,
+    saved,
+    bank
+  };
+}
+
+async function prepareBuildSamples(payload, build, env) {
+  const sampleKeys = payload.sampleKeys && typeof payload.sampleKeys === "object" ? payload.sampleKeys : {};
+  const selected = new Set(build.slots.filter(Boolean));
+  const keys = [];
+  for (const app of ["GridsSampler", "OneshotSampler"]) {
+    const rawKeys = Array.isArray(sampleKeys[app]) ? sampleKeys[app] : [sampleKeys[app]];
+    if (!selected.has(app)) {
+      continue;
+    }
+    for (const rawKey of rawKeys) {
+      const key = String(rawKey || "").trim();
+      if (key) {
+        keys.push(key);
+      }
+    }
+  }
+  if (!keys.length) {
+    return "";
+  }
+
+  const uploads = [];
+  for (const key of keys) {
+    if (!key.startsWith("samples/uploads/") || !key.endsWith("/manifest.json")) {
+      throw httpError(400, "invalid sample key");
+    }
+    const object = await env.BUILDS.get(key);
+    if (!object) {
+      throw httpError(404, "sample upload not found");
+    }
+    const manifest = await object.json();
+    if (Array.isArray(manifest.uploads)) {
+      uploads.push(...manifest.uploads);
+    }
+  }
+
+  if (!uploads.length) {
+    return "";
+  }
+  const buildKey = `samples/builds/${crypto.randomUUID()}/manifest.json`;
+  await putJson(env, buildKey, {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    uploads
+  });
+  return buildKey;
 }
 
 async function getGenerateStatus(url, env) {
@@ -301,4 +458,28 @@ async function putJson(env, key, value) {
 
 function requestKey(id) {
   return `requests/${id}.json`;
+}
+
+function safeSegment(value) {
+  return value.replace(/[^A-Za-z0-9_. -]+/g, "_").trim().replace(/^[ ._-]+|[ ._-]+$/g, "") || "Samples";
+}
+
+function safeFilename(value) {
+  const name = value.split(/[\\/]/).pop() || "";
+  const dot = name.lastIndexOf(".");
+  const stem = safeSegment(dot >= 0 ? name.slice(0, dot) : name);
+  const suffix = dot >= 0 ? name.slice(dot).toLowerCase() : "";
+  if (suffix !== ".wav") {
+    throw httpError(400, "only .wav files are supported");
+  }
+  return `${stem}.wav`;
+}
+
+function isUploadFile(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    typeof value.name === "string" &&
+    typeof value.stream === "function"
+  );
 }

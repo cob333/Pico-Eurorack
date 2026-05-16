@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -83,6 +84,103 @@ def verify_action_libraries() -> None:
         )
 
 
+def aws_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["AWS_ACCESS_KEY_ID"] = os.environ.get("R2_ACCESS_KEY_ID", "")
+    env["AWS_SECRET_ACCESS_KEY"] = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+    return env
+
+
+def r2_endpoint() -> str:
+    account_id = os.environ.get("R2_ACCOUNT_ID", "")
+    if not account_id:
+        raise RuntimeError("R2_ACCOUNT_ID is required for sample uploads")
+    return f"https://{account_id}.r2.cloudflarestorage.com"
+
+
+def r2_bucket() -> str:
+    bucket = os.environ.get("R2_BUCKET", "")
+    if not bucket:
+        raise RuntimeError("R2_BUCKET is required for sample uploads")
+    return bucket
+
+
+def read_r2_json(key: str) -> dict:
+    result = subprocess.run(
+        [
+            "aws",
+            "--endpoint-url",
+            r2_endpoint(),
+            "s3",
+            "cp",
+            f"s3://{r2_bucket()}/{key}",
+            "-",
+        ],
+        check=True,
+        env=aws_env(),
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    return json.loads(result.stdout)
+
+
+def download_r2_file(key: str, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "aws",
+            "--endpoint-url",
+            r2_endpoint(),
+            "s3",
+            "cp",
+            f"s3://{r2_bucket()}/{key}",
+            str(output),
+        ],
+        check=True,
+        env=aws_env(),
+    )
+
+
+def apply_sample_bundle(sample_key: str) -> None:
+    if not sample_key:
+        return
+    if not sample_key.startswith("samples/") or not sample_key.endswith("/manifest.json"):
+        raise RuntimeError("invalid sample bundle key")
+
+    manifest = read_r2_json(sample_key)
+    uploads = manifest.get("uploads")
+    if not isinstance(uploads, list):
+        raise RuntimeError("sample bundle manifest is missing uploads")
+
+    touched: set[str] = set()
+    for upload in uploads:
+        if not isinstance(upload, dict):
+            raise RuntimeError("invalid sample upload entry")
+        app_id = str(upload.get("app") or "")
+        files = upload.get("files")
+        if app_id not in server.SAMPLE_APPS:
+            raise RuntimeError(f"sample app not supported: {app_id}")
+        if not isinstance(files, list) or not files:
+            continue
+
+        root = server.SAMPLE_APPS[app_id]
+        bank = server.safe_segment(str(upload.get("bank") or "Custom"))
+        target_root = root if app_id == "GridsSampler" else root / bank
+        target_root.mkdir(parents=True, exist_ok=True)
+        for item in files:
+            if not isinstance(item, dict):
+                raise RuntimeError("invalid sample file entry")
+            key = str(item.get("key") or "")
+            filename = server.safe_filename(str(item.get("name") or Path(key).name))
+            if not key.startswith("samples/uploads/"):
+                raise RuntimeError("invalid sample file key")
+            download_r2_file(key, target_root / filename)
+        touched.add(app_id)
+
+    for app_id in sorted(touched):
+        server.rebuild_sample_headers(app_id)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a Pico-Eurorack UF2 bundle in GitHub Actions")
     parser.add_argument("--request-id", required=True)
@@ -94,16 +192,15 @@ def main() -> None:
         help='Comma-separated app ids or JSON array, for example "TripleOSC,Plaits,Rings"',
     )
     parser.add_argument("--active", type=int, default=0, help="Zero-based active slot index")
-    parser.add_argument("--sample-key", default="", help="Reserved R2 sample upload key for future sampler support")
+    parser.add_argument("--sample-key", default="", help="Optional R2 sample bundle manifest key")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist" / "firmware")
     args = parser.parse_args()
 
     validate_request(args.device, args.slots, args.active)
-    if args.sample_key:
-        raise RuntimeError("cloud sample uploads are not enabled in this first deployment")
 
     verify_action_libraries()
     server.ensure_sample_defaults()
+    apply_sample_bundle(args.sample_key)
     output_path, output_name = server.generate_firmware(
         {
             "device": args.device,

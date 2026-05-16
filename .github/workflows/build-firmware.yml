@@ -91,11 +91,16 @@ jobs:
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Synthesis/oscillator.cpp"
           arduino-cli lib list
 
+      - name: Install R2 download tools
+        run: |
+          python3 -m pip install --user awscli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Build UF2
         run: |
           ARDUINO_PICO_ROOT="$HOME/.arduino15/packages/rp2040/hardware/rp2040/${ARDUINO_CORE_VERSION}"
           export PICO_SDK_PATH="${ARDUINO_PICO_ROOT}/pico-sdk"
-          export PATH="$HOME/.arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-1aec55e/bin:$PATH"
+          export PATH="$HOME/.local/bin:$HOME/.arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-1aec55e/bin:$PATH"
           find "$GITHUB_WORKSPACE/.arduino/libraries" -maxdepth 3 \( -name 'Adafruit_NeoPixel.h' -o -name 'daisysp.h' -o -name 'dsp.h' -o -name 'oscillator.cpp' \) -print
           python3 Client/scripts/github_action_build.py \
             --request-id "${{ inputs.request_id }}" \
@@ -115,7 +120,6 @@ jobs:
       - name: Upload UF2 to Cloudflare R2
         if: ${{ env.R2_ACCOUNT_ID != '' && env.R2_ACCESS_KEY_ID != '' && env.R2_SECRET_ACCESS_KEY != '' && env.R2_BUCKET != '' }}
         run: |
-          python3 -m pip install --user awscli
           export PATH="$HOME/.local/bin:$PATH"
           export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"

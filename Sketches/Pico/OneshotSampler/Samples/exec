@@ -1,8 +1,9 @@
 #!/bin/zsh
+# Contributor: Wenhao Yang
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TOOL="$SCRIPT_DIR/wav2header44khz"
+TOOL="${WAV2HEADER_TOOL:-$SCRIPT_DIR/wav2header44khz}"
 
 typeset -a BANK_TAGS
 typeset -a BANK_HEADERS

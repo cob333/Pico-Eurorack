@@ -192,6 +192,8 @@ SAMPLE_APPS = {
     "GridsSampler": ROOT / "Sketches" / "Pico" / "GridsSampler" / "Samples",
     "OneshotSampler": ROOT / "Sketches" / "Pico" / "OneshotSampler" / "Samples",
 }
+WAV2HEADER_SOURCE = ROOT / "Sketches" / "Pico" / "resources" / "Wav2Header" / "wav2header44khz.c"
+WAV2HEADER_TOOL = BUILD_ROOT / "tools" / "wav2header44khz"
 SAMPLE_LOCK = threading.RLock()
 
 
@@ -662,12 +664,31 @@ def clamp_sample_names(sample_root: Path) -> None:
                 header.write_text(updated)
 
 
+def ensure_wav2header_tool() -> Path:
+    if not WAV2HEADER_SOURCE.exists():
+        raise RuntimeError(f"missing converter source: {WAV2HEADER_SOURCE.relative_to(ROOT)}")
+    cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+    if not cc:
+        raise RuntimeError("missing C compiler: install cc, gcc, or clang to build wav2header44khz")
+
+    needs_build = not WAV2HEADER_TOOL.exists()
+    if not needs_build:
+        needs_build = WAV2HEADER_TOOL.stat().st_mtime < WAV2HEADER_SOURCE.stat().st_mtime
+    if needs_build:
+        WAV2HEADER_TOOL.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [cc, "-O2", "-Wall", str(WAV2HEADER_SOURCE), "-o", str(WAV2HEADER_TOOL)],
+            cwd=ROOT,
+            check=True,
+        )
+        WAV2HEADER_TOOL.chmod(0o755)
+    return WAV2HEADER_TOOL
+
+
 def rebuild_sample_headers(app_id: str) -> None:
+    tool = ensure_wav2header_tool()
     if app_id == "GridsSampler":
         root = SAMPLE_APPS[app_id]
-        tool = root / "wav2header44khz"
-        if not tool.exists():
-            raise RuntimeError(f"missing converter: {tool.relative_to(ROOT)}")
         subprocess.run([str(tool)], cwd=root, check=True)
         clamp_sample_names(root)
     elif app_id == "OneshotSampler":
@@ -675,7 +696,9 @@ def rebuild_sample_headers(app_id: str) -> None:
         script = root / "exec"
         if not script.exists():
             raise RuntimeError(f"missing converter script: {script.relative_to(ROOT)}")
-        subprocess.run(["/bin/zsh", str(script)], cwd=root, check=True)
+        env = os.environ.copy()
+        env["WAV2HEADER_TOOL"] = str(tool)
+        subprocess.run(["/bin/zsh", str(script)], cwd=root, env=env, check=True)
         clamp_sample_names(root)
     else:
         raise RuntimeError(f"sample app not supported: {app_id}")

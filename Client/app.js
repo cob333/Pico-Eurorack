@@ -82,7 +82,8 @@
     };
     const sampleState = {
       app: "",
-      payload: null
+      payload: null,
+      sampleKeys: {}
     };
     const PANEL_FOCUS = {
       IN: { x: "50%", y: "3%", scale: 2.5 },
@@ -385,6 +386,7 @@
 
       sampleBankName.hidden = false;
       const banks = payload.banks || [];
+      const cloudSamples = Boolean(payload.cloud);
       sampleBankName.disabled = false;
       sampleBankName.placeholder = "New Bank";
 
@@ -398,7 +400,7 @@
             <div class="sample-bank-head">
               <div class="sample-bank-title">
                 <strong>${escapeHtml(bank.name)}</strong>
-                <button class="sample-delete-bank" type="button" data-bank="${escapeHtml(bank.name)}">Delete</button>
+                ${cloudSamples ? "" : `<button class="sample-delete-bank" type="button" data-bank="${escapeHtml(bank.name)}">Delete</button>`}
               </div>
               <span>${bank.count} samples · ${formatCapacityBytes(bank.bytes)}</span>
             </div>
@@ -451,6 +453,14 @@
           result = await response.json();
           if (!response.ok) throw new Error(result.error || `Upload HTTP ${response.status}`);
           sampleState.payload = result;
+          if (result.sampleKey) {
+            const existingKeys = sampleState.sampleKeys[sampleState.app];
+            const keys = Array.isArray(existingKeys) ? existingKeys : (existingKeys ? [existingKeys] : []);
+            if (!keys.includes(result.sampleKey)) {
+              keys.push(result.sampleKey);
+            }
+            sampleState.sampleKeys[sampleState.app] = keys;
+          }
           sampleFiles.value = "";
           sampleBankName.value = "";
           renderSampleClient();
@@ -938,7 +948,8 @@
           body: JSON.stringify({
             device: state.device,
             slots: slotIds,
-            active: state.selectedSlot
+            active: state.selectedSlot,
+            sampleKeys: sampleState.sampleKeys
           })
         });
         if (!response.ok) {
