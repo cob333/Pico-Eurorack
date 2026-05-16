@@ -36,6 +36,9 @@
 
       <section class="slot-bar" aria-label="Bootloader app slots">
         <h2>Slots</h2>
+        <div class="slot-help">
+          <button class="slot-help-button" type="button" aria-describedby="slotHelpPopover">?</button>
+        </div>
         <div class="slots" id="slots"></div>
         <div class="slot-usage" aria-label="Firmware capacity usage">
           <div class="usage-track" aria-hidden="true">
@@ -91,9 +94,23 @@
     </section>
     <div class="footer-reveal-space" id="footerRevealSpace" aria-hidden="true"></div>
     <footer class="site-footer">
-      <span>This client is built upon https://github.com/rheslip/2HPico-Eurorack-Module-Hardware.</span>
-      <span>Original author: Rich Heslip</span>
+      <span>This client is built for https://github.com/rheslip/2HPico-Eurorack-Module-Hardware.</span>
+      <span>This project is possible due to the work of Rich Heslip</span>
       <img src="../images/fm.synth.jpg" alt="by fm.synth">
+      <div class="footer-help">
+        <button class="footer-help-button" type="button" aria-describedby="uf2HelpPopover">?</button>
+        <div class="footer-help-popover" id="uf2HelpPopover" role="tooltip">
+          <strong>How upload .uf2 to my Pico/PicoFX?</strong>
+          <ol>
+            <li>DO NOT use your eurorack power;</li>
+            <li>Hold the "BOOT" button while plugging the USB-C cable into your computer;</li>
+            <li>After that, release the "BOOT" button;</li>
+            <li>You will see a folder "RP2350" in your device;</li>
+            <li>Drag the generated ".uf2" into this folder, wait 'till it's done;</li>
+            <li>Get ready with your new Pico/PicoFX~</li>
+          </ol>
+        </div>
+      </div>
     </footer>
     <div class="build-overlay" id="buildOverlay" aria-live="polite" aria-label="Build progress">
       <div class="build-progress">
@@ -127,6 +144,16 @@
           <input id="sampleFiles" type="file" accept=".wav,audio/wav,audio/x-wav" multiple aria-label="WAV files">
           <button class="sample-upload-button" id="sampleUploadButton" type="submit">Upload</button>
         </form>
+      </div>
+    </div>
+    <div class="slot-help-popover" id="slotHelpPopover" role="tooltip">
+      <div class="slot-help-card">
+        <strong>How do I change apps while using Pico/PicoFX?</strong>
+        <ol>
+          <li>Hold the button while powering on your system.</li>
+          <li>Click the button to move to the next app. The LED color matches the slot color.</li>
+          <li>Hold the button to enter the selected app. On a normal boot, Pico/PicoFX automatically opens the last app you used.</li>
+        </ol>
       </div>
     </div>
   </div>

@@ -37,6 +37,8 @@
     const usageFill = document.getElementById("usageFill");
     const usageLabel = document.getElementById("usageLabel");
     const slotTrash = document.getElementById("slotTrash");
+    const slotHelpButton = document.querySelector(".slot-help-button");
+    const slotHelpPopover = document.getElementById("slotHelpPopover");
     const clearAllSlots = document.getElementById("clearAllSlots");
     const generateButton = document.getElementById("generateButton");
     const generationStatus = document.getElementById("generationStatus");
@@ -99,7 +101,17 @@
       OUT: { x: "50%", y: "92%", scale: 2.5 }
     };
     const SLOT_COLOR_CLASSES = ["orange", "yellow", "tiffany", "aqua", "blue", "violet"];
+    let slotHelpHideTimer = 0;
 
+    if (slotHelpButton && slotHelpPopover) {
+      slotHelpButton.addEventListener("mouseenter", showSlotHelp);
+      slotHelpButton.addEventListener("focus", showSlotHelp);
+      slotHelpButton.addEventListener("mouseleave", scheduleSlotHelpHide);
+      slotHelpButton.addEventListener("blur", scheduleSlotHelpHide);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") hideSlotHelp();
+      });
+    }
     generateButton.addEventListener("click", generateFirmware);
     buildCancel.addEventListener("click", cancelBuild);
     sampleClose.addEventListener("click", closeSampleClient);
@@ -123,6 +135,29 @@
     window.addEventListener("resize", updateSegmentSliders);
     window.addEventListener("scroll", updateFooterReveal, { passive: true });
     window.addEventListener("resize", updateFooterReveal);
+
+    function showSlotHelp() {
+      if (!slotHelpPopover) return;
+      if (slotHelpHideTimer) {
+        clearTimeout(slotHelpHideTimer);
+        slotHelpHideTimer = 0;
+      }
+      slotHelpPopover.classList.add("open");
+    }
+
+    function scheduleSlotHelpHide() {
+      if (slotHelpHideTimer) clearTimeout(slotHelpHideTimer);
+      slotHelpHideTimer = window.setTimeout(hideSlotHelp, 200);
+    }
+
+    function hideSlotHelp() {
+      if (!slotHelpPopover) return;
+      if (slotHelpHideTimer) {
+        clearTimeout(slotHelpHideTimer);
+        slotHelpHideTimer = 0;
+      }
+      slotHelpPopover.classList.remove("open");
+    }
 
     function resetDeviceDefaults() {
       state.selectedSlot = 0;

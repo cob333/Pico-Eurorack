@@ -5,34 +5,26 @@
 ![Pico_Icon](./images/Pico_Icon.jpg)
 
 Arduino sketches for `2HPico` and `2HPico DSP` Eurorack modules; source code lives in `Sketches/`.
-This repository also includes a friendly Web client for browsing module descriptions, editing sampler content, selecting up to 6 Bootloader app slots, and generating a drag-and-drop `.uf2` firmware file.
+This repository also includes a friendly Web client for browsing module descriptions, editing sampler content, selecting up to 6 Bootloader app slots, and generating firmware; 
+Click the link to use online: https://cob333.github.io/Pico-Eurorack/Client/
 
 This is an alternative set of sketches for the 2HPico and 2HPico DSP modules by rich hesslip. See the original sketches at: 
 https://github.com/rheslip/2HPico-DSP-Sketches; 
 https://github.com/rheslip/2HPico-Sketches;
 
 What's the difference?
-friendly Web client;
+easy to use Web-based client;
 more sketches;
 more color options; 
 Unified file structure for both Pico and PicoFX sketches;
 
 ## Web Client
-
-The client lives in `Client/`. Its backend calls `Bootloader/Tools/pico_boot_apps.py` to compile the selected sketches, then packages the Bootloader selector and app slots into one `.uf2` file.
-
-### Run
-
-From the repository root:
+1. Online Usage: https://cob333.github.io/Pico-Eurorack/Client/
+2. Local Usage: The client lives in `Client/`. Its backend calls `Bootloader/Tools/pico_boot_apps.py` to compile the selected sketches, then packages the Bootloader selector and app slots into one `.uf2` file.
+  From the repository root, then open the client in your browser at: http://127.0.0.1:8765/
 
 ```sh
 python3 Client/server.py
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8765/
 ```
 
 If port `8765` is already in use, the backend automatically tries the next ports and prints the actual URL in the terminal.
@@ -54,17 +46,6 @@ If port `8765` is already in use, the backend automatically tries the next ports
 - `OneshotSampler`: supports uploading WAV files to Banks, listing Banks, and deleting Banks.
 
 The current default `GridsSampler` library uses the `TR-808` samples from `OneshotSampler`; `OneshotSampler` keeps `TR-606`, `TR-808`, and `TR-909` as default Banks.
-
-### Build And Cache Directories
-
-The client uses these directories as temporary build areas:
-
-- `Bootloader/build/client/sizes/`: size-estimate cache; keeps only each app's `.ino.uf2`.
-- `Bootloader/build/client/slotN-AppName/`: temporary compile directory used during Generate; removed automatically after Generate finishes.
-- `Bootloader/build/client/output/`: temporary final `.uf2` download directory; removed automatically after the browser download starts.
-- `Bootloader/build/client/sample-defaults/`: backend default sample snapshot used to restore the default samples for `GridsSampler` and `OneshotSampler`.
-
-The home page only reads existing size caches and does not auto-compile missing sizes. If an app card shows `Build`, click Upload in the sampler panel to trigger a size estimate, or let the backend measure it on demand during Generate.
 
 ### Requirements
 

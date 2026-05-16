@@ -5,7 +5,8 @@
 ![Pico_Icon](./images/Pico_Icon.jpg)
 
 这是一个面向 `2HPico` 和 `2HPico DSP` Eurorack 模块的脚本仓库，源码位于 `Sketches/`。
-该仓库带有一个用户友好的 Web 客户端，可以浏览模块说明、编辑采样、选择最多 6 个功能加入 Bootloader 槽位，并生成可直接拖拽烧录的 `.uf2` 固件。
+该仓库带有一个用户友好的 Web 客户端，可以浏览模块说明、编辑采样、选择最多 6 个功能加入 Bootloader 槽位.
+点击链接在线使用: https://cob333.github.io/Pico-Eurorack/Client/
 
 这是 2HPico 与 2HPico DSP 的一套二次开发脚本集合，原始仓库见：
 https://github.com/rheslip/2HPico-DSP-Sketches;
@@ -18,21 +19,12 @@ https://github.com/rheslip/2HPico-Sketches;
 为 Pico 与 PicoFX sketch 提供统一的文件结构；
 
 ## Web 客户端
-
-客户端位于 `Client/`，后端会调用 `Bootloader/Tools/pico_boot_apps.py` 编译选中的 sketch，并把 Bootloader selector 与多个 app slot 打包成一个 `.uf2` 文件。
-
-### 启动
-
-在仓库根目录运行：
-
+1. 在线使用: https://cob333.github.io/Pico-Eurorack/Client/
+2. 本地部署: 见下文 `启动` 与 `使用流程`。
+  客户端位于 `Client/`，后端会调用 `Bootloader/Tools/pico_boot_apps.py` 编译选中的 sketch，并把 Bootloader selector 与多个 app slot 打包成一个 `.uf2` 文件。
+  在仓库根目录运行以下命令，之后在：http://127.0.0.1:8765/ 浏览客户端。
 ```sh
 python3 Client/server.py
-```
-
-启动后打开：
-
-```text
-http://127.0.0.1:8765/
 ```
 
 如果 `8765` 被占用，后端会自动尝试后续端口，终端中会打印实际访问地址。
@@ -54,17 +46,6 @@ http://127.0.0.1:8765/
 - `OneshotSampler`：支持 Bank 列表、删除 Bank。
 
 当前 `GridsSampler` 的默认采样库使用 `OneshotSampler` 中的 `TR-808` 采样；`OneshotSampler` 默认保留 `TR-606`、`TR-808`、`TR-909` Bank。
-
-### 生成与缓存
-
-客户端使用以下目录作为临时构建区：
-
-- `Bootloader/build/client/sizes/`：容量估算缓存，只保留各 app 的 `.ino.uf2`。
-- `Bootloader/build/client/slotN-AppName/`：Generate 过程中的临时编译目录，生成结束后会自动删除。
-- `Bootloader/build/client/output/`：最终 `.uf2` 的临时下载目录，浏览器下载后会自动删除。
-- `Bootloader/build/client/sample-defaults/`：后端默认采样快照，用于恢复 `GridsSampler` 和 `OneshotSampler` 的默认采样。
-
-首页加载只读取已有容量缓存，不会自动编译缺失容量；如果某个功能显示 `Build`，可以在采样面板点击 Upload 触发容量测算，或在 Generate 时由后端按需测算。
 
 ### 环境要求
 
