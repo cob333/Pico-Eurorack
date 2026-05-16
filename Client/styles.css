@@ -396,7 +396,7 @@
 
     .slot-bar {
       position: relative;
-      z-index: 110;
+      z-index: 1;
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto;
       grid-template-rows: auto auto;
