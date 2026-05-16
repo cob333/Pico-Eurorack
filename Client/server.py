@@ -554,6 +554,14 @@ def samples_payload(app_id: str) -> dict:
     }
 
 
+def sample_defaults_payload() -> dict:
+    return {
+        app_id: samples_payload(app_id)
+        for app_id in sorted(SAMPLE_APPS)
+        if SAMPLE_APPS[app_id].exists()
+    }
+
+
 def sample_copy_ignore(_dir: str, names: list[str]) -> set[str]:
     ignored = {".DS_Store", "__pycache__"}
     ignored.update(name for name in names if name.startswith("build_"))

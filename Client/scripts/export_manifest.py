@@ -24,6 +24,7 @@ from Client import server  # noqa: E402
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export Pico-Eurorack client manifest JSON")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--samples-output", type=Path)
     parser.add_argument(
         "--build-missing",
         action="store_true",
@@ -36,6 +37,9 @@ def main() -> None:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(server.manifest_payload(build_missing=args.build_missing), indent=2) + "\n")
+    if args.samples_output:
+        args.samples_output.parent.mkdir(parents=True, exist_ok=True)
+        args.samples_output.write_text(json.dumps(server.sample_defaults_payload(), indent=2) + "\n")
 
 
 if __name__ == "__main__":

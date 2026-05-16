@@ -141,6 +141,37 @@ def download_r2_file(key: str, output: Path) -> None:
     )
 
 
+def apply_sample_deletes(deletes: list[dict]) -> set[str]:
+    touched: set[str] = set()
+    for item in deletes:
+        if not isinstance(item, dict):
+            raise RuntimeError("invalid sample delete entry")
+        app_id = str(item.get("app") or "")
+        if app_id not in server.SAMPLE_APPS:
+            raise RuntimeError(f"sample app not supported: {app_id}")
+        root = server.SAMPLE_APPS[app_id]
+        delete_type = str(item.get("type") or "")
+        if delete_type == "file":
+            filename = server.safe_filename(str(item.get("name") or ""))
+            bank = server.safe_segment(str(item.get("bank") or "")) if app_id == "OneshotSampler" and item.get("bank") else ""
+            target = (root / bank / filename).resolve() if bank else (root / filename).resolve()
+        elif delete_type == "bank" and app_id == "OneshotSampler":
+            bank = server.safe_segment(str(item.get("bank") or ""))
+            target = (root / bank).resolve()
+        else:
+            raise RuntimeError("invalid sample delete type")
+        try:
+            target.relative_to(root.resolve())
+        except ValueError as exc:
+            raise RuntimeError("invalid sample delete path") from exc
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
+        touched.add(app_id)
+    return touched
+
+
 def apply_sample_bundle(sample_key: str) -> None:
     if not sample_key:
         return
@@ -151,8 +182,11 @@ def apply_sample_bundle(sample_key: str) -> None:
     uploads = manifest.get("uploads")
     if not isinstance(uploads, list):
         raise RuntimeError("sample bundle manifest is missing uploads")
+    deletes = manifest.get("deletes") or []
+    if not isinstance(deletes, list):
+        raise RuntimeError("sample bundle manifest has invalid deletes")
 
-    touched: set[str] = set()
+    touched: set[str] = apply_sample_deletes(deletes)
     for upload in uploads:
         if not isinstance(upload, dict):
             raise RuntimeError("invalid sample upload entry")

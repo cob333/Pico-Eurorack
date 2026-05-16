@@ -74,7 +74,7 @@ jobs:
           mkdir -p _site
           cp -R Client _site/Client
           cp -R images _site/images
-          python3 Client/scripts/export_manifest.py --build-missing --output _site/Client/manifest.json
+          python3 Client/scripts/export_manifest.py --build-missing --output _site/Client/manifest.json --samples-output _site/Client/sample-defaults.json
           touch _site/.nojekyll
           cat > _site/index.html <<'HTML'
           <!doctype html>
@@ -97,6 +97,7 @@ jobs:
           name: pico-capacity-cache
           path: |
             _site/Client/manifest.json
+            _site/Client/sample-defaults.json
             Bootloader/build/client/sizes
           retention-days: 30
 

@@ -782,6 +782,19 @@
       background: #ffffff;
     }
 
+    button.sample-file-pill:not(:disabled):hover,
+    button.sample-file-pill:not(:disabled):focus-visible {
+      border-color: rgba(215, 0, 21, 0.3);
+      background: #fff1f3;
+      color: var(--danger);
+      outline: none;
+    }
+
+    button.sample-file-pill:disabled {
+      cursor: default;
+      opacity: 0.74;
+    }
+
     .sample-delete-bank {
       border: 1px solid rgba(215, 0, 21, 0.18);
       border-radius: 999px;
@@ -798,6 +811,11 @@
       border-color: rgba(215, 0, 21, 0.36);
       background: #ffe7ea;
       outline: none;
+    }
+
+    .sample-delete-bank:disabled {
+      cursor: default;
+      opacity: 0.5;
     }
 
     .slots {

@@ -85,6 +85,7 @@
       app: "",
       payload: null,
       sampleKeys: {},
+      sampleDeletes: {},
       capacityBytes: {}
     };
     const PANEL_FOCUS = {
@@ -282,6 +283,87 @@
       return (payload?.banks || []).reduce((total, bank) => total + (Number(bank.bytes) || 0), 0);
     }
 
+    function addSampleCapacityDelta(appName, bytes) {
+      sampleState.capacityBytes[appName] = (sampleState.capacityBytes[appName] || 0) + bytes;
+      const baseMeta = apiState.baseAppsByName.get(appName) || apiState.appsByName.get(appName);
+      if (baseMeta) updateCatalogAppMetadata(baseMeta);
+    }
+
+    function sampleDeleteState(appName) {
+      if (!sampleState.sampleDeletes[appName]) {
+        sampleState.sampleDeletes[appName] = { files: [], banks: [] };
+      }
+      return sampleState.sampleDeletes[appName];
+    }
+
+    function mergeSamplePayload(base, uploaded) {
+      if (!base) return uploaded;
+      if (base.bankless) {
+        const uploadedWavs = (uploaded.wavs || []).map((item) => ({ ...item, uploaded: true }));
+        const uploadedFiles = (uploaded.libraryFiles || uploaded.wavs || []).map((item) => ({ ...item, uploaded: true }));
+        return {
+          ...base,
+          libraryFiles: [...(base.libraryFiles || []), ...uploadedFiles],
+          wavs: [...(base.wavs || []), ...uploadedWavs],
+          sampleKey: uploaded.sampleKey,
+          uploadedBytes: uploaded.uploadedBytes,
+          saved: uploaded.saved,
+          bank: uploaded.bank
+        };
+      }
+      const banks = (base.banks || []).map((bank) => ({ ...bank, samples: [...(bank.samples || [])] }));
+      (uploaded.banks || []).forEach((uploadedBank) => {
+        const nextBank = { ...uploadedBank, uploaded: true, samples: (uploadedBank.samples || []).map((item) => ({ ...item, uploaded: true })) };
+        const existing = banks.find((bank) => bank.name === nextBank.name);
+        if (existing) {
+          existing.samples.push(...nextBank.samples);
+          existing.count = existing.samples.length;
+          existing.bytes = (Number(existing.bytes) || 0) + (Number(nextBank.bytes) || 0);
+        } else {
+          banks.push(nextBank);
+        }
+      });
+      return {
+        ...base,
+        banks,
+        sampleKey: uploaded.sampleKey,
+        uploadedBytes: uploaded.uploadedBytes,
+        saved: uploaded.saved,
+        bank: uploaded.bank
+      };
+    }
+
+    function applyCurrentSampleDeletes(payload) {
+      const deletes = sampleState.sampleDeletes[payload.app];
+      if (!deletes) return payload;
+      if (payload.bankless) {
+        const fileNames = new Set(deletes.files || []);
+        return {
+          ...payload,
+          libraryFiles: (payload.libraryFiles || []).filter((item) => !fileNames.has(item.name)),
+          wavs: (payload.wavs || []).filter((item) => !fileNames.has(item.name))
+        };
+      }
+      const removedBanks = new Set(deletes.banks || []);
+      const removedFiles = new Set((deletes.files || []).map((item) => `${item.bank}/${item.name}`));
+      const banks = (payload.banks || [])
+        .filter((bank) => !removedBanks.has(bank.name))
+        .map((bank) => {
+          const samples = (bank.samples || []).filter((item) => !removedFiles.has(`${bank.name}/${item.name}`));
+          const bytes = samples.reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+          return {
+            ...bank,
+            samples,
+            count: samples.length,
+            bytes
+          };
+        });
+      return {
+        ...payload,
+        banks
+      };
+    }
+
     function setStatus(message, isError = false) {
       generationStatus.textContent = message;
       generationStatus.classList.toggle("error", isError);
@@ -383,7 +465,7 @@
         const response = await apiFetch(`/api/samples?app=${encodeURIComponent(sampleState.app)}`, { cache: "no-store" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || `Samples HTTP ${response.status}`);
-        sampleState.payload = payload;
+        sampleState.payload = applyCurrentSampleDeletes(payload);
         renderSampleClient();
         sampleStatus.textContent = "Ready";
         sampleStatus.classList.remove("error");
@@ -396,6 +478,7 @@
     function renderSampleClient() {
       const payload = sampleState.payload;
       if (!payload) return;
+      const cloudSamples = Boolean(payload.cloud);
       if (payload.bankless) {
         sampleBankName.hidden = true;
         sampleBankName.disabled = true;
@@ -403,7 +486,10 @@
         const wavs = payload.wavs || [];
         const files = libraryFiles.slice(0, 72).map((item) => {
           const size = Number.isFinite(item.bytes) ? ` · ${formatCapacityBytes(item.bytes)}` : "";
-          return `<span class="sample-file-pill">${escapeHtml(item.name)}${size}</span>`;
+          const action = item.uploaded ? "" : ` data-file="${escapeHtml(item.name)}"`;
+          return cloudSamples
+            ? `<button class="sample-file-pill sample-remove-file" type="button"${action}${item.uploaded ? " disabled" : ""}>${escapeHtml(item.name)}${size}</button>`
+            : `<span class="sample-file-pill">${escapeHtml(item.name)}${size}</span>`;
         }).join("");
         const hiddenCount = Math.max(0, libraryFiles.length - 72);
         sampleBankList.innerHTML = `
@@ -418,18 +504,26 @@
             </div>
           </section>
         `;
+        if (cloudSamples) {
+          sampleBankList.querySelectorAll(".sample-remove-file").forEach((button) => {
+            button.addEventListener("click", () => removeDefaultSampleFile(button.dataset.file || ""));
+          });
+        }
         return;
       }
 
       sampleBankName.hidden = false;
       const banks = payload.banks || [];
-      const cloudSamples = Boolean(payload.cloud);
       sampleBankName.disabled = false;
       sampleBankName.placeholder = "New Bank";
 
       sampleBankList.innerHTML = banks.map((bank) => {
+        const bankHasDefaults = (bank.samples || []).some((item) => !item.uploaded);
         const files = (bank.samples || []).slice(0, 36).map((item) => {
-          return `<span class="sample-file-pill">${escapeHtml(item.name)} · ${formatCapacityBytes(item.bytes)}</span>`;
+          const action = item.uploaded ? "" : ` data-bank="${escapeHtml(bank.name)}" data-file="${escapeHtml(item.name)}"`;
+          return cloudSamples
+            ? `<button class="sample-file-pill sample-remove-file" type="button"${action}${item.uploaded ? " disabled" : ""}>${escapeHtml(item.name)} · ${formatCapacityBytes(item.bytes)}</button>`
+            : `<span class="sample-file-pill">${escapeHtml(item.name)} · ${formatCapacityBytes(item.bytes)}</span>`;
         }).join("");
         const hiddenCount = Math.max(0, (bank.samples || []).length - 36);
         return `
@@ -437,7 +531,7 @@
             <div class="sample-bank-head">
               <div class="sample-bank-title">
                 <strong>${escapeHtml(bank.name)}</strong>
-                ${cloudSamples ? "" : `<button class="sample-delete-bank" type="button" data-bank="${escapeHtml(bank.name)}">Delete</button>`}
+                <button class="sample-delete-bank" type="button" data-bank="${escapeHtml(bank.name)}"${cloudSamples && !bankHasDefaults ? " disabled" : ""}>${cloudSamples ? "Remove" : "Delete"}</button>
               </div>
               <span>${bank.count} samples · ${formatCapacityBytes(bank.bytes)}</span>
             </div>
@@ -449,8 +543,72 @@
         `;
       }).join("") || `<div class="empty-state">No sample banks found.</div>`;
       sampleBankList.querySelectorAll(".sample-delete-bank").forEach((button) => {
-        button.addEventListener("click", () => deleteSampleBank(button.dataset.bank || ""));
+        button.addEventListener("click", () => {
+          if (cloudSamples) removeDefaultSampleBank(button.dataset.bank || "");
+          else deleteSampleBank(button.dataset.bank || "");
+        });
       });
+      if (cloudSamples) {
+        sampleBankList.querySelectorAll(".sample-remove-file").forEach((button) => {
+          button.addEventListener("click", () => removeDefaultSampleFile(button.dataset.file || "", button.dataset.bank || ""));
+        });
+      }
+    }
+
+    function removeDefaultSampleFile(filename, bankName = "") {
+      if (!sampleState.app || !filename || !sampleState.payload) return;
+      const payload = sampleState.payload;
+      let removedBytes = 0;
+      if (payload.bankless) {
+        const before = payload.libraryFiles || [];
+        const hit = before.find((item) => item.name === filename);
+        removedBytes = Number(hit?.bytes) || 0;
+        payload.libraryFiles = before.filter((item) => item.name !== filename);
+        payload.wavs = (payload.wavs || []).filter((item) => item.name !== filename);
+        const deletes = sampleDeleteState(sampleState.app);
+        if (!deletes.files.includes(filename)) deletes.files.push(filename);
+      } else {
+        const bank = (payload.banks || []).find((item) => item.name === bankName);
+        if (!bank) return;
+        const hit = (bank.samples || []).find((item) => item.name === filename);
+        removedBytes = Number(hit?.bytes) || 0;
+        bank.samples = (bank.samples || []).filter((item) => item.name !== filename);
+        bank.count = bank.samples.length;
+        bank.bytes = Math.max(0, (Number(bank.bytes) || 0) - removedBytes);
+        const deletes = sampleDeleteState(sampleState.app);
+        const entry = { bank: bankName, name: filename };
+        if (!deletes.files.some((item) => item.bank === entry.bank && item.name === entry.name)) {
+          deletes.files.push(entry);
+        }
+      }
+      if (removedBytes) addSampleCapacityDelta(sampleState.app, -removedBytes);
+      renderSampleClient();
+      sampleStatus.textContent = `Removed ${filename} from this build. Upload refreshes the estimated total capacity.`;
+      sampleStatus.classList.remove("error");
+    }
+
+    function removeDefaultSampleBank(bankName) {
+      if (!sampleState.app || !bankName || !sampleState.payload || sampleState.payload.bankless) return;
+      const banks = sampleState.payload.banks || [];
+      const bank = banks.find((item) => item.name === bankName);
+      if (!bank) return;
+      const uploadedSamples = (bank.samples || []).filter((item) => item.uploaded);
+      const defaultSamples = (bank.samples || []).filter((item) => !item.uploaded);
+      const removedBytes = defaultSamples.reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+      if (!removedBytes) return;
+      if (uploadedSamples.length) {
+        bank.samples = uploadedSamples;
+        bank.count = uploadedSamples.length;
+        bank.bytes = uploadedSamples.reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+      } else {
+        sampleState.payload.banks = banks.filter((item) => item.name !== bankName);
+      }
+      const deletes = sampleDeleteState(sampleState.app);
+      if (!deletes.banks.includes(bankName)) deletes.banks.push(bankName);
+      addSampleCapacityDelta(sampleState.app, -removedBytes);
+      renderSampleClient();
+      sampleStatus.textContent = `Removed ${bankName} from this build. Upload refreshes the estimated total capacity.`;
+      sampleStatus.classList.remove("error");
     }
 
     async function uploadSampleFiles(event) {
@@ -489,7 +647,7 @@
           });
           result = await response.json();
           if (!response.ok) throw new Error(result.error || `Upload HTTP ${response.status}`);
-          sampleState.payload = result;
+          sampleState.payload = mergeSamplePayload(sampleState.payload, result);
           if (result.sampleKey) {
             const existingKeys = sampleState.sampleKeys[sampleState.app];
             const keys = Array.isArray(existingKeys) ? existingKeys : (existingKeys ? [existingKeys] : []);
@@ -497,7 +655,7 @@
               keys.push(result.sampleKey);
             }
             sampleState.sampleKeys[sampleState.app] = keys;
-            sampleState.capacityBytes[sampleState.app] = (sampleState.capacityBytes[sampleState.app] || 0) + sampleUploadBytes(result);
+            addSampleCapacityDelta(sampleState.app, sampleUploadBytes(result));
           }
           sampleFiles.value = "";
           sampleBankName.value = "";
@@ -512,9 +670,9 @@
         sampleModal.setAttribute("aria-hidden", "false");
         if (hasFiles) {
           const destination = result.bank ? ` to ${result.bank}` : "";
-          sampleStatus.textContent = `Uploaded ${result.saved.length} file${result.saved.length === 1 ? "" : "s"}${destination}. Capacity updated.`;
+          sampleStatus.textContent = `Uploaded ${result.saved.length} file${result.saved.length === 1 ? "" : "s"}${destination}. Estimated total capacity updated.`;
         } else {
-          sampleStatus.textContent = "Capacity updated.";
+          sampleStatus.textContent = "Estimated total capacity updated.";
         }
       } catch (error) {
         endBuildUi(false);
@@ -987,7 +1145,8 @@
             device: state.device,
             slots: slotIds,
             active: state.selectedSlot,
-            sampleKeys: sampleState.sampleKeys
+            sampleKeys: sampleState.sampleKeys,
+            sampleDeletes: sampleState.sampleDeletes
           })
         });
         if (!response.ok) {

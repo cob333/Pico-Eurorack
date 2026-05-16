@@ -217,27 +217,55 @@ async function dispatchWorkflow(env, requestId, build, sampleKey = "") {
 
 async function getSamples(url, env) {
   const app = url.searchParams.get("app") || "";
-  if (app === "GridsSampler") {
+  const defaults = await getSampleDefaults(env);
+  const payload = defaults[app];
+  if (payload) {
     return {
-      app,
-      root: "Sketches/Pico/GridsSampler/Samples",
-      banks: [],
-      libraryFiles: [],
-      wavs: [],
-      bankless: true,
-      cloud: true
-    };
-  }
-  if (app === "OneshotSampler") {
-    return {
-      app,
-      root: "Sketches/Pico/OneshotSampler/Samples",
-      banks: [],
-      bankless: false,
+      ...payload,
       cloud: true
     };
   }
   throw httpError(400, `sample app not supported: ${app}`);
+}
+
+async function getSampleDefaults(env) {
+  const url = env.SAMPLE_DEFAULTS_URL || defaultSampleDefaultsUrl(env);
+  if (!url) {
+    return fallbackSampleDefaults();
+  }
+  const response = await fetch(url, { cf: { cacheTtl: 60, cacheEverything: true } });
+  if (!response.ok) {
+    return fallbackSampleDefaults();
+  }
+  return await response.json();
+}
+
+function defaultSampleDefaultsUrl(env) {
+  if (!env.MANIFEST_URL) {
+    return "";
+  }
+  const url = new URL(env.MANIFEST_URL);
+  url.pathname = url.pathname.replace(/manifest\.json$/, "sample-defaults.json");
+  return url.toString();
+}
+
+function fallbackSampleDefaults() {
+  return {
+    GridsSampler: {
+      app: "GridsSampler",
+      root: "Sketches/Pico/GridsSampler/Samples",
+      banks: [],
+      libraryFiles: [],
+      wavs: [],
+      bankless: true
+    },
+    OneshotSampler: {
+      app: "OneshotSampler",
+      root: "Sketches/Pico/OneshotSampler/Samples",
+      banks: [],
+      bankless: false
+    }
+  };
 }
 
 async function uploadSamples(request, env) {
@@ -322,6 +350,7 @@ async function uploadSamples(request, env) {
 
 async function prepareBuildSamples(payload, build, env) {
   const sampleKeys = payload.sampleKeys && typeof payload.sampleKeys === "object" ? payload.sampleKeys : {};
+  const sampleDeletes = payload.sampleDeletes && typeof payload.sampleDeletes === "object" ? payload.sampleDeletes : {};
   const selected = new Set(build.slots.filter(Boolean));
   const keys = [];
   for (const app of ["GridsSampler", "OneshotSampler"]) {
@@ -337,7 +366,18 @@ async function prepareBuildSamples(payload, build, env) {
     }
   }
   if (!keys.length) {
-    return "";
+    const deletesOnly = normalizeSampleDeletes(sampleDeletes, selected);
+    if (!deletesOnly.length) {
+      return "";
+    }
+    const buildKey = `samples/builds/${crypto.randomUUID()}/manifest.json`;
+    await putJson(env, buildKey, {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      uploads: [],
+      deletes: deletesOnly
+    });
+    return buildKey;
   }
 
   const uploads = [];
@@ -356,15 +396,50 @@ async function prepareBuildSamples(payload, build, env) {
   }
 
   if (!uploads.length) {
-    return "";
+    const deletesOnly = normalizeSampleDeletes(sampleDeletes, selected);
+    if (!deletesOnly.length) {
+      return "";
+    }
   }
+  const deletes = normalizeSampleDeletes(sampleDeletes, selected);
   const buildKey = `samples/builds/${crypto.randomUUID()}/manifest.json`;
   await putJson(env, buildKey, {
     version: 1,
     createdAt: new Date().toISOString(),
-    uploads
+    uploads,
+    deletes
   });
   return buildKey;
+}
+
+function normalizeSampleDeletes(sampleDeletes, selected) {
+  const deletes = [];
+  for (const app of ["GridsSampler", "OneshotSampler"]) {
+    if (!selected.has(app)) {
+      continue;
+    }
+    const entry = sampleDeletes[app];
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const files = Array.isArray(entry.files) ? entry.files : [];
+    const banks = Array.isArray(entry.banks) ? entry.banks : [];
+    for (const item of files) {
+      const filename = safeFilename(String((typeof item === "object" && item ? item.name : item) || ""));
+      const entry = { app, type: "file", name: filename };
+      if (app === "OneshotSampler" && typeof item === "object" && item && item.bank) {
+        entry.bank = safeSegment(String(item.bank || ""));
+      }
+      deletes.push(entry);
+    }
+    for (const bank of banks) {
+      if (app !== "OneshotSampler") {
+        continue;
+      }
+      deletes.push({ app, type: "bank", bank: safeSegment(String(bank || "")) });
+    }
+  }
+  return deletes;
 }
 
 async function getGenerateStatus(url, env) {
