@@ -74,7 +74,7 @@ I2S DAC(OUTPUT);  // using PCM1103 stereo DAC
 
 // including the source files is a pain but that way you compile in only the modules you need
 // DaisySP statically allocates memory and some modules e.g. reverb use a lot of ram
-#include "synthesis/oscillator.cpp"
+#include "Synthesis/oscillator.cpp"
 
 // we will use only the anitaliased versions of the waveforms
 // *** something is wrong here - daisySP generates a ramp instead of a square wave

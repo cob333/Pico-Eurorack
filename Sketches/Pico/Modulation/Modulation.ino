@@ -51,7 +51,7 @@
 #include <Adafruit_NeoPixel.h>
 #include "pico/multicore.h"
 #include "daisysp.h"
-#include "control/adsr.cpp"
+#include "Control/adsr.cpp"
 #include "lut.h"
 
 #define DEBUG

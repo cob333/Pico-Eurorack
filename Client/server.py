@@ -366,7 +366,7 @@ def size_probe_uf2(app: AppDef, build_missing: bool = False) -> Path | None:
         match = re.search(r"region `FLASH' overflowed by (\d+) bytes", str(exc))
         if match:
             raise SizeOverflow(APP_REGION_BYTES + int(match.group(1))) from exc
-        return None
+        raise RuntimeError(f"cannot build size probe for {app.name}:\n{exc}") from exc
 
 
 def size_cache_build_path(app: AppDef) -> Path:

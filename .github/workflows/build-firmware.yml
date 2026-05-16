@@ -81,7 +81,13 @@ jobs:
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "Adafruit NeoPixel@1.12.5"
+          git clone --depth 1 --branch V1.0.0 https://github.com/electro-smith/DaisySP.git "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
+          if [ -d "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Source" ]; then
+            cp -R "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Source/." "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/"
+          fi
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/daisysp.h"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Synthesis/oscillator.cpp"
           arduino-cli lib list
 
       - name: Build UF2
@@ -89,7 +95,7 @@ jobs:
           ARDUINO_PICO_ROOT="$HOME/.arduino15/packages/rp2040/hardware/rp2040/${ARDUINO_CORE_VERSION}"
           export PICO_SDK_PATH="${ARDUINO_PICO_ROOT}/pico-sdk"
           export PATH="$HOME/.arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-1aec55e/bin:$PATH"
-          find "$GITHUB_WORKSPACE/.arduino/libraries" -maxdepth 2 -name 'Adafruit_NeoPixel.h' -print
+          find "$GITHUB_WORKSPACE/.arduino/libraries" -maxdepth 3 \( -name 'Adafruit_NeoPixel.h' -o -name 'daisysp.h' -o -name 'oscillator.cpp' \) -print
           python3 Client/scripts/github_action_build.py \
             --request-id "${{ inputs.request_id }}" \
             --device "${{ inputs.device }}" \

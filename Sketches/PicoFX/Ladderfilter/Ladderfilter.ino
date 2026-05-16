@@ -74,7 +74,7 @@ I2S i2s(INPUT_PULLUP); // both input and output
 
 // including the source files is a pain but that way you compile in only the modules you need
 // DaisySP statically allocates memory and some modules e.g. reverb use a lot of ram
-#include "filters/Moogladder.cpp"
+#include "Filters/moogladder.cpp"
 
 float samplerate=SAMPLERATE;  // for DaisySP
 
