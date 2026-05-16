@@ -1,4 +1,5 @@
 name: Build bundled UF2
+run-name: Firmware ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
@@ -58,8 +59,10 @@ jobs:
 
       - name: Install system packages
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi
+          if ! command -v cmake >/dev/null || ! command -v ninja >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y cmake ninja-build
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -69,21 +72,41 @@ jobs:
       - name: Install arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
+      - name: Restore Arduino toolchain cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15/packages
+            ~/.arduino15/package_index.json
+            ~/.arduino15/package_rp2040_index.json
+            ~/.cache/arduino
+            .arduino/libraries
+          key: arduino-${{ runner.os }}-rp2040-${{ env.ARDUINO_CORE_VERSION }}-neopixel-1.12.5-daisy-002bcbfc7f8a
+
       - name: Install Arduino-Pico core
         run: |
           arduino-cli config init --overwrite
           arduino-cli config set directories.user "$GITHUB_WORKSPACE/.arduino"
           arduino-cli config add board_manager.additional_urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
-          arduino-cli core update-index
-          arduino-cli core install "rp2040:rp2040@${ARDUINO_CORE_VERSION}"
+          if ! arduino-cli core list | grep -q "rp2040:rp2040 .*${ARDUINO_CORE_VERSION}"; then
+            arduino-cli core update-index
+            arduino-cli core install "rp2040:rp2040@${ARDUINO_CORE_VERSION}"
+          fi
 
       - name: Install Arduino libraries
         run: |
-          arduino-cli lib update-index
-          arduino-cli lib install "Adafruit NeoPixel@1.12.5"
-          git clone https://github.com/rheslip/DaisySP_Teensy.git "$RUNNER_TEMP/DaisySP_Teensy"
-          git -C "$RUNNER_TEMP/DaisySP_Teensy" checkout 002bcbfc7f8a7e7305954b38c2bbbf12a2bd845e
-          cp -R "$RUNNER_TEMP/DaisySP_Teensy/DaisySP" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
+          if [ ! -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h" ]; then
+            arduino-cli lib update-index
+            arduino-cli lib install "Adafruit NeoPixel@1.12.5"
+          fi
+          if [ ! -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Synthesis/oscillator.cpp" ]; then
+            rm -rf "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
+            git clone --depth 1 https://github.com/rheslip/DaisySP_Teensy.git "$RUNNER_TEMP/DaisySP_Teensy"
+            git -C "$RUNNER_TEMP/DaisySP_Teensy" fetch --depth 1 origin 002bcbfc7f8a7e7305954b38c2bbbf12a2bd845e
+            git -C "$RUNNER_TEMP/DaisySP_Teensy" checkout 002bcbfc7f8a7e7305954b38c2bbbf12a2bd845e
+            cp -R "$RUNNER_TEMP/DaisySP_Teensy/DaisySP" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
+          fi
+          rm -rf "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/utility"
           cp -R "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Utility" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/utility"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/daisysp.h"

@@ -1186,7 +1186,7 @@
           throw new Error(job.error || "Generate failed");
         }
 
-        state.progressTimer = window.setTimeout(pollBuildStatus, 500);
+        state.progressTimer = window.setTimeout(pollBuildStatus, 3000);
       } catch (error) {
         setStatus(error.message || "Generate failed", true);
         endBuildUi(false);

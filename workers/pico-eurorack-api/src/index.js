@@ -466,6 +466,46 @@ async function getGenerateStatus(url, env) {
       error: "Build timed out before the UF2 appeared in R2"
     };
   }
+  const run = await findWorkflowRun(env, record);
+  if (run) {
+    if (run.status === "completed") {
+      if (run.conclusion === "success") {
+        const completedAgeSeconds = (Date.now() - Date.parse(run.updated_at || run.created_at || record.createdAt)) / 1000;
+        if (completedAgeSeconds < 20) {
+          return {
+            id,
+            status: "running",
+            progress: 98,
+            message: "Publishing UF2 to R2",
+            runUrl: run.html_url
+          };
+        }
+        return {
+          id,
+          status: "error",
+          progress: 95,
+          message: "Build finished, waiting for R2 output",
+          error: "GitHub Actions completed successfully, but the UF2 was not found in R2. Check R2 secrets and the upload step.",
+          runUrl: run.html_url
+        };
+      }
+      return {
+        id,
+        status: "error",
+        progress: 0,
+        message: "GitHub Actions build failed",
+        error: `GitHub Actions concluded with ${run.conclusion || "unknown"}`,
+        runUrl: run.html_url
+      };
+    }
+    return {
+      id,
+      status: run.status === "queued" ? "queued" : "running",
+      progress: run.status === "queued" ? 8 : Math.min(92, 18 + Math.floor(ageSeconds / 10)),
+      message: run.status === "queued" ? "Queued in GitHub Actions" : "GitHub Actions build running",
+      runUrl: run.html_url
+    };
+  }
   if (ageSeconds < 20) {
     return {
       id,
@@ -480,6 +520,35 @@ async function getGenerateStatus(url, env) {
     status: "running",
     progress,
     message: "GitHub Actions build running"
+  };
+}
+
+async function findWorkflowRun(env, record) {
+  if (!env.GITHUB_TOKEN || !env.GITHUB_OWNER || !env.GITHUB_REPO || !env.GITHUB_WORKFLOW) {
+    return null;
+  }
+  const branch = env.GITHUB_REF || "main";
+  const response = await fetch(
+    `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW}/runs?event=workflow_dispatch&branch=${encodeURIComponent(branch)}&per_page=20`,
+    {
+      headers: githubHeaders(env)
+    }
+  );
+  if (!response.ok) {
+    return null;
+  }
+  const payload = await response.json();
+  const runs = Array.isArray(payload.workflow_runs) ? payload.workflow_runs : [];
+  const expectedTitle = `Firmware ${record.id}`;
+  return runs.find((run) => run.display_title === expectedTitle || run.name === expectedTitle) || null;
+}
+
+function githubHeaders(env) {
+  return {
+    "Accept": "application/vnd.github+json",
+    "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+    "User-Agent": "pico-eurorack-api",
+    "X-GitHub-Api-Version": "2022-11-28"
   };
 }
 
