@@ -84,8 +84,10 @@ jobs:
           git clone https://github.com/rheslip/DaisySP_Teensy.git "$RUNNER_TEMP/DaisySP_Teensy"
           git -C "$RUNNER_TEMP/DaisySP_Teensy" checkout 002bcbfc7f8a7e7305954b38c2bbbf12a2bd845e
           cp -R "$RUNNER_TEMP/DaisySP_Teensy/DaisySP" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP"
+          cp -R "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Utility" "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/utility"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/Adafruit_NeoPixel/Adafruit_NeoPixel.h"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/daisysp.h"
+          test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/utility/dsp.h"
           test -f "$GITHUB_WORKSPACE/.arduino/libraries/DaisySP/Synthesis/oscillator.cpp"
           arduino-cli lib list
 
@@ -94,7 +96,7 @@ jobs:
           ARDUINO_PICO_ROOT="$HOME/.arduino15/packages/rp2040/hardware/rp2040/${ARDUINO_CORE_VERSION}"
           export PICO_SDK_PATH="${ARDUINO_PICO_ROOT}/pico-sdk"
           export PATH="$HOME/.arduino15/packages/rp2040/tools/pqt-gcc/4.1.0-1aec55e/bin:$PATH"
-          find "$GITHUB_WORKSPACE/.arduino/libraries" -maxdepth 3 \( -name 'Adafruit_NeoPixel.h' -o -name 'daisysp.h' -o -name 'oscillator.cpp' \) -print
+          find "$GITHUB_WORKSPACE/.arduino/libraries" -maxdepth 3 \( -name 'Adafruit_NeoPixel.h' -o -name 'daisysp.h' -o -name 'dsp.h' -o -name 'oscillator.cpp' \) -print
           python3 Client/scripts/github_action_build.py \
             --request-id "${{ inputs.request_id }}" \
             --device "${{ inputs.device }}" \
