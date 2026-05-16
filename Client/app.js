@@ -78,7 +78,7 @@
       slotAlignBytes: 4096,
       maxSlots: 6,
       appsByName: new Map(),
-      baseUrl: window.PICO_API_BASE || null
+      baseUrl: window.PICO_API_BASE === undefined ? null : window.PICO_API_BASE
     };
     const sampleState = {
       app: "",
@@ -157,12 +157,20 @@
 
     async function apiFetch(path, options = {}) {
       const hasPinnedBase = apiState.baseUrl !== null;
+      const isLocalClient = window.location.protocol === "file:"
+        || ["127.0.0.1", "localhost"].includes(window.location.hostname);
       const bases = hasPinnedBase ? [apiState.baseUrl] : apiCandidates();
+      if (hasPinnedBase && isLocalClient) {
+        for (const candidate of apiCandidates()) {
+          if (!bases.includes(candidate)) bases.push(candidate);
+        }
+      }
       let lastError = null;
       for (const base of bases) {
         try {
-          const response = await fetch(`${base}${path}`, options);
-          if (response.ok || hasPinnedBase) {
+          const apiUrl = base ? `${base.replace(/\/+$/, "")}${path}` : path;
+          const response = await fetch(apiUrl, options);
+          if (response.ok || (hasPinnedBase && !isLocalClient)) {
             apiState.baseUrl = base;
             return response;
           }

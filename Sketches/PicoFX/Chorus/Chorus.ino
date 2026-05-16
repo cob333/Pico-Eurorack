@@ -84,7 +84,7 @@ float samplerate=SAMPLERATE;  // for DaisySP
 
 daisysp::Chorus chorus;
 
-#define CV_VOLT 580.6  // a/d counts per volt - trim for V/octave
+#define CV_VOLT 582.52  // a/d counts per volt - trim for V/octave
 
 #define NUMUISTATES 2 // 
 enum UIstates {CHORUS,MIX};

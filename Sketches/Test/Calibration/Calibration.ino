@@ -25,15 +25,25 @@
 //
 // -----------------------------------------------------------------------------
 //
-// DAC calibration helper for 2HPico (RP2350)
-// Outputs fixed voltages for calibration.
+// DAC/input calibration helper for 2HPico (RP2350)
+// Outputs fixed voltages for DAC calibration and samples jack 2 for CV input
+// calibration.
 //
-// Button: short press to cycle modes
+// Button: short press to cycle DAC output modes
+//         hold 3 seconds to enter jack 2 input calibration
 // LED color indicates the current output mode.
 //
 // Output:
 // - Left DAC channel (bottom jack) = calibration CV
 // - Right DAC channel (middle jack) = same calibration CV
+//
+// Input calibration:
+// - Hold button 3 seconds: blink VIOLET 3 times, enter input calibration
+// - ORANGE: patch 1V into jack 2, press button to sample it
+// - YELLOW: jack 3 outputs theoretical 1V DAC value, press button to confirm
+// - AQUA: patch 5V into jack 2, press button to sample it
+// - BLUE: jack 3 outputs theoretical 5V DAC value, press button to confirm
+// - GREEN blink 3 times on success, RED blink 3 times on failure
 //
 // V1.0 RH Jan 2026
 
@@ -51,7 +61,11 @@ Adafruit_NeoPixel LEDS(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);
 I2S DAC(OUTPUT);
 
 // DAC calibration constants
-#define CVOUT_VOLT 6554 // D/A count per volt (adjust to calibrate)
+#define CVOUT_VOLT 5456 // D/A count per volt (adjust to calibrate)
+#define INPUT_CAL_HOLD_MS 3000
+#define INPUT_CAL_SAMPLES 256
+#define CVIN_COUNTS_PER_VOLT_MIN 100.0f
+#define CVIN_COUNTS_PER_VOLT_MAX 1200.0f
 
 enum CalMode {
   MODE_0V = 0,
@@ -62,39 +76,206 @@ enum CalMode {
   MODE_COUNT
 };
 
-static volatile int16_t cvout = 0;
+enum InputCalState {
+  INPUT_CAL_IDLE = 0,
+  INPUT_CAL_WAIT_1V,
+  INPUT_CAL_CONFIRM_1V_DAC,
+  INPUT_CAL_WAIT_5V,
+  INPUT_CAL_CONFIRM_5V_DAC
+};
+
+static volatile int16_t cvout_left = 0;
+static volatile int16_t cvout_right = 0;
 static uint8_t mode = MODE_0V;
+static uint8_t inputCalState = INPUT_CAL_IDLE;
 static bool button = 0;
+static bool longPressHandled = 0;
 static uint32_t buttontimer = 0;
+static uint32_t buttonpress = 0;
+static uint16_t inputCalRaw1V = 0;
+static uint16_t inputCalRaw5V = 0;
+
+static void setLed(uint32_t color) {
+  LEDS.setPixelColor(0, color);
+  LEDS.show();
+}
+
+static void setOutputs(int16_t left, int16_t right) {
+  cvout_left = left;
+  cvout_right = right;
+}
+
+static int16_t dacCountsForVoltage(uint8_t volts) {
+  int32_t counts = (int32_t)volts * (int32_t)CVOUT_VOLT;
+  if (counts > 32767) counts = 32767;
+  if (counts < -32767) counts = -32767;
+  return (int16_t)counts;
+}
+
+static void blinkLed(uint32_t color, uint8_t times) {
+  for (uint8_t i = 0; i < times; ++i) {
+    setLed(color);
+    delay(140);
+    setLed(0);
+    delay(120);
+  }
+}
+
+static uint16_t sampleCv2Average() {
+  uint32_t total = 0;
+  for (uint16_t i = 0; i < INPUT_CAL_SAMPLES; ++i) {
+    total += analogRead(CV2IN);
+    delayMicroseconds(80);
+  }
+  return (uint16_t)((total + (INPUT_CAL_SAMPLES / 2)) / INPUT_CAL_SAMPLES);
+}
 
 static void applyMode() {
+  int16_t out = 0;
+  uint32_t color = RED;
   switch (mode) {
     case MODE_0V:
-      cvout = 0;
-      LEDS.setPixelColor(0, RED);
+      out = 0;
+      color = RED;
       break;
     case MODE_P1V:
-      cvout = (int16_t)(1 * CVOUT_VOLT);
-      LEDS.setPixelColor(0, GREEN);
+      out = dacCountsForVoltage(1);
+      color = GREEN;
       break;
     case MODE_P2V:
-      cvout = (int16_t)(2 * CVOUT_VOLT);
-      LEDS.setPixelColor(0, BLUE);
+      out = dacCountsForVoltage(2);
+      color = BLUE;
       break;
     case MODE_P4V:
-      cvout = (int16_t)(4 * CVOUT_VOLT);
-      LEDS.setPixelColor(0, AQUA);
+      out = dacCountsForVoltage(4);
+      color = AQUA;
       break;
     case MODE_N1V:
-      cvout = (int16_t)(-1 * CVOUT_VOLT);
-      LEDS.setPixelColor(0, YELLOW);
+      out = (int16_t)(-1 * CVOUT_VOLT);
+      color = YELLOW;
       break;
     default:
-      cvout = 0;
-      LEDS.setPixelColor(0, RED);
+      out = 0;
+      color = RED;
       break;
   }
-  LEDS.show();
+  setOutputs(out, out);
+  setLed(color);
+}
+
+static void beginInputCalibration() {
+  inputCalState = INPUT_CAL_WAIT_1V;
+  setOutputs(0, 0);
+  setLed(ORANGE);
+
+#ifdef DEBUG
+  Serial.println("input calibration: patch 1V into jack 2, press button");
+#endif
+}
+
+static bool finishInputCalibration() {
+  if (inputCalRaw1V <= inputCalRaw5V) return false; // CV input is inverted.
+
+  const float countsPerVolt = ((float)inputCalRaw1V - (float)inputCalRaw5V) / 4.0f;
+  const float zeroCounts = (float)inputCalRaw1V + countsPerVolt;
+  if (countsPerVolt < CVIN_COUNTS_PER_VOLT_MIN ||
+      countsPerVolt > CVIN_COUNTS_PER_VOLT_MAX ||
+      zeroCounts < 0.0f ||
+      zeroCounts > (float)AD_RANGE + countsPerVolt) {
+    return false;
+  }
+
+#ifdef DEBUG
+  Serial.print("input calibration raw 1V: ");
+  Serial.println(inputCalRaw1V);
+  Serial.print("input calibration raw 5V: ");
+  Serial.println(inputCalRaw5V);
+  Serial.print("CV2 counts per volt: ");
+  Serial.println(countsPerVolt, 4);
+  Serial.print("CV2 zero counts: ");
+  Serial.println(zeroCounts, 4);
+#endif
+
+  return true;
+}
+
+static void completeInputCalibration(bool ok) {
+  inputCalState = INPUT_CAL_IDLE;
+  setOutputs(0, 0);
+  blinkLed(ok ? GREEN : RED, 3);
+  applyMode();
+}
+
+static void advanceInputCalibration() {
+  switch (inputCalState) {
+    case INPUT_CAL_WAIT_1V:
+      inputCalRaw1V = sampleCv2Average();
+      setOutputs(dacCountsForVoltage(1), 0); // jack 3 only
+      setLed(YELLOW);
+      inputCalState = INPUT_CAL_CONFIRM_1V_DAC;
+#ifdef DEBUG
+      Serial.print("sampled jack 2 at 1V: ");
+      Serial.println(inputCalRaw1V);
+      Serial.println("jack 3 outputting theoretical 1V DAC value, press button");
+#endif
+      break;
+    case INPUT_CAL_CONFIRM_1V_DAC:
+      setOutputs(0, 0);
+      setLed(AQUA);
+      inputCalState = INPUT_CAL_WAIT_5V;
+#ifdef DEBUG
+      Serial.println("input calibration: patch 5V into jack 2, press button");
+#endif
+      break;
+    case INPUT_CAL_WAIT_5V:
+      inputCalRaw5V = sampleCv2Average();
+      setOutputs(dacCountsForVoltage(5), 0); // jack 3 only
+      setLed(BLUE);
+      inputCalState = INPUT_CAL_CONFIRM_5V_DAC;
+#ifdef DEBUG
+      Serial.print("sampled jack 2 at 5V: ");
+      Serial.println(inputCalRaw5V);
+      Serial.println("jack 3 outputting theoretical 5V DAC value, press button");
+#endif
+      break;
+    case INPUT_CAL_CONFIRM_5V_DAC:
+      completeInputCalibration(finishInputCalibration());
+      break;
+    default:
+      completeInputCalibration(false);
+      break;
+  }
+}
+
+static void serviceButton() {
+  const uint32_t now = millis();
+  if (!digitalRead(BUTTON1)) {
+    if (((now - buttontimer) > DEBOUNCE) && !button) {
+      button = 1;
+      buttonpress = now;
+      longPressHandled = 0;
+    }
+    if (button && !longPressHandled &&
+        inputCalState == INPUT_CAL_IDLE &&
+        ((now - buttonpress) >= INPUT_CAL_HOLD_MS)) {
+      longPressHandled = 1;
+      blinkLed(VIOLET, 3);
+      beginInputCalibration();
+    }
+  } else {
+    if (button && !longPressHandled) {
+      if (inputCalState == INPUT_CAL_IDLE) {
+        ++mode;
+        if (mode >= MODE_COUNT) mode = MODE_0V;
+        applyMode();
+      } else {
+        advanceInputCalibration();
+      }
+    }
+    buttontimer = now;
+    button = 0;
+    longPressHandled = 0;
+  }
 }
 
 void setup() {
@@ -110,6 +291,7 @@ void setup() {
 
   pinMode(BUTTON1, INPUT_PULLUP);
   pinMode(MUXCTL, OUTPUT);
+  pinMode(CV2IN, INPUT);
 
   LEDS.begin();
   LEDS.setPixelColor(0, RED);
@@ -132,17 +314,7 @@ void setup() {
 }
 
 void loop() {
-  if (!digitalRead(BUTTON1)) {
-    if (((millis() - buttontimer) > DEBOUNCE) && !button) {
-      button = 1;
-      ++mode;
-      if (mode >= MODE_COUNT) mode = MODE_0V;
-      applyMode();
-    }
-  } else {
-    buttontimer = millis();
-    button = 0;
-  }
+  serviceButton();
 }
 
 // second core setup
@@ -156,9 +328,9 @@ void loop1() {
   digitalWrite(CPU_USE, 0);
 #endif
 
-  // send calibration CV to both channels
-  DAC.write(int16_t(cvout)); // left
-  DAC.write(int16_t(cvout)); // right
+  // send calibration CV to the DAC channels
+  DAC.write(int16_t(cvout_left));  // left, bottom jack / jack 3
+  DAC.write(int16_t(cvout_right)); // right, middle jack
 
 #ifdef MONITOR_CPU1
   digitalWrite(CPU_USE, 1);

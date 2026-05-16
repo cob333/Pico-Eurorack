@@ -96,7 +96,7 @@ volatile bool oscEnabled[OSCSPERVOICE] = {1,1,1};
 // create daisySP processing objects
 Oscillator osc[VOICES * OSCSPERVOICE];
 
-#define CV_VOLT_DEFAULT 580.6f  // default a/d counts per volt - trim for V/octave
+#define CV_VOLT_DEFAULT 582.52f  // default a/d counts per volt - trim for V/octave
 
 #define NUMUISTATES 1 // only 1 page in this UI
 enum UIstates {OSCS};

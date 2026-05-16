@@ -232,7 +232,7 @@ constexpr float FLANGER_DEFAULT_LFO_DEPTH = 0.9f;
 constexpr float FLANGER_STEREO_PHASE_OFFSET = 0.5f; // 180 degrees
 constexpr uint32_t LFO_WAVEFORM_DISPLAY_MS = 2000;
 
-#define CV_VOLT 580.6  // a/d counts per volt - trim for V/octave
+#define CV_VOLT 582.52 // a/d counts per volt - trim for V/octave
 
 #define NUMUISTATES 2 // 
 enum UIstates {FLANGER,MIX};

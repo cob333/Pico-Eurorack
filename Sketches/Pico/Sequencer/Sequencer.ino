@@ -95,7 +95,7 @@ I2S DAC(OUTPUT);  //
 #define MAX_RATCHET 8
 
 
-#define CVIN_VOLT 580.6  // a/d count per volt - **** adjust this value to calibrate V/octave input
+#define CVIN_VOLT 582.52  // a/d count per volt - **** adjust this value to calibrate V/octave input
 #define CVOUT_VOLT 5456 // D/A count per volt - nominally +-5v range for -+32767 DAC values- ***** adjust this value to calibrate V/octave out
 #define CVOUTMIN -2*CVOUT_VOLT  // lowest output CV ie MIDI note 0
 

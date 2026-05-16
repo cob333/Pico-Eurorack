@@ -72,7 +72,7 @@ I2S i2s(INPUT_PULLUP); // both input and output
 
 Granular granular;
 
-#define CV_VOLT 580.6  // a/d counts per volt - trim for V/octave
+#define CV_VOLT 582.52  // a/d counts per volt - trim for V/octave
 
 #define NUMUISTATES 1 // 
 enum UIstates {SET1};

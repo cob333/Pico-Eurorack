@@ -62,7 +62,7 @@ enum UIstates { SET1, SET2 };
 uint8_t UIstate = SET1;
 
 constexpr uint32_t kControlUpdateMs = 10;
-#define CV_VOLT_DEFAULT 580.6f
+#define CV_VOLT_DEFAULT 582.52f
 #define EEPROM_BYTES 256
 #define RINGS_STORE_MAGIC 0x52494E47u // "RING"
 #define RINGS_STORE_VERSION 3u
@@ -72,7 +72,7 @@ constexpr uint32_t kControlUpdateMs = 10;
 constexpr uint32_t kSaveHoldMs = 3000;
 constexpr uint16_t kFeedbackBlinkMs = 120;
 constexpr uint32_t kPolyFeedbackMs = 2000;
-constexpr float kPitchCvBaseSlewTimeSeconds = 0.006f;
+constexpr float kPitchCvBaseSlewTimeSeconds = 0.001f;
 constexpr float kPitchCvMaxSlewTimeSeconds = 0.300f;
 constexpr float kPitchCvDeadbandSemitones = 0.05f;
 

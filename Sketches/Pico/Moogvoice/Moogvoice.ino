@@ -136,7 +136,7 @@ MoogLadder filt;
 // there is a significant movement of the pots when the pots are "locked"
 // this prevents a waveform or level change ("shift" parameters) from changing the ramp times when the shift button is released
 
-#define CV_VOLT 580.6  // a/d counts per volt - trim for V/octave
+#define CV_VOLT 582.52f  // a/d counts per volt - trim for V/octave
 
 #define OSC_MIN_FREQ 20
 #define FILTER_MIN_FREQ 50
