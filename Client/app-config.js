@@ -142,7 +142,10 @@
           ], io("Audio input", "Main", "Trigger in", "Audio out"), info(true, "Green led indicates output level, red led indicates ducking active")),
           app("SpectralSmash", "Freeze / tear spectral processor", [
             page("SPECTRAL", ["Warp / tear", "Blur", "Time smear", "Wet / dry mix"], led("blue"))
-          ], io("Audio in", "Short press freeze, hold recaptures", "Right audio out", "Left audio out"), info(false, ""))
+          ], io("Audio in", "Short press freeze, hold recaptures", "Right audio out", "Left audio out"), info(false, "")),
+          app("Tremolo", "Tremolo effect", [
+            page("Main", ["Depth", "Speed", "Dry/wet mix", "Output level"], led("red"))
+          ], io("Audio in", "Unused", "Speed CV in", "Audio out"), info(false, ""))
         ]
       }
     };

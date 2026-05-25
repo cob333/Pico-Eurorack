@@ -183,6 +183,7 @@ APPS = [
     AppDef("Panner", "picofx", "Panner", "Sketches/PicoFX/Panner", "Build/PicoFX/150MHz/Panner_150MHz.uf2"),
     AppDef("Space", "picofx", "Space", "Sketches/PicoFX/Space", None),
     AppDef("SpectralSmash", "picofx", "SpectralSmash", "Sketches/PicoFX/SpectralSmash", None),
+    AppDef("Tremolo", "picofx", "Tremolo", "Sketches/PicoFX/Tremolo", None),
 ]
 
 APP_BY_ID = {app.id: app for app in APPS}
