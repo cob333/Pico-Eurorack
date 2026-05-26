@@ -512,7 +512,18 @@ def sample_includes_from_header(sample_root: Path) -> list[dict]:
         try:
             path.relative_to(sample_root.resolve())
             if path.exists():
+                item["headerBytes"] = path.stat().st_size
                 item["bytes"] = path.stat().st_size
+                source_match = re.search(
+                    r"Converted from\s+(.+?),\s+using",
+                    path.read_text(errors="replace"),
+                )
+                if source_match:
+                    source_wav = source_match.group(1).strip()
+                    item["sourceWav"] = source_wav
+                    source_path = sample_root / source_wav
+                    if source_path.exists():
+                        item["bytes"] = source_path.stat().st_size
         except ValueError:
             pass
         includes.append(item)

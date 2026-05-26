@@ -299,14 +299,14 @@
       if (!meta) return meta;
       const extraBytes = sampleState.capacityBytes[appName] || 0;
       if (!extraBytes || !Number.isFinite(meta.sizeBytes)) return meta;
-      const sizeBytes = meta.sizeBytes + extraBytes;
+      const sizeBytes = Math.max(0, meta.sizeBytes + extraBytes);
       const allocatedBytes = alignCapacityBytes(sizeBytes);
       return {
         ...meta,
         sizeBytes,
         allocatedBytes,
         fitsRegion: allocatedBytes <= apiState.storageBytes,
-        source: `${meta.source || "manifest"} + uploaded samples`
+        source: `${meta.source || "manifest"} + sample edits`
       };
     }
 
@@ -322,6 +322,17 @@
       sampleState.capacityBytes[appName] = (sampleState.capacityBytes[appName] || 0) + bytes;
       const baseMeta = apiState.baseAppsByName.get(appName) || apiState.appsByName.get(appName);
       if (baseMeta) updateCatalogAppMetadata(baseMeta);
+    }
+
+    function banklessSampleKey(item) {
+      return item?.sourceWav || item?.name || "";
+    }
+
+    function banklessSampleBytes(item, payload) {
+      if (!item) return 0;
+      const source = item.sourceWav || "";
+      const wav = source ? (payload.wavs || []).find((row) => row.name === source) : null;
+      return Number(wav?.bytes ?? item.bytes) || 0;
     }
 
     function sampleDeleteState(appName) {
@@ -521,7 +532,7 @@
         const wavs = payload.wavs || [];
         const files = libraryFiles.slice(0, 72).map((item) => {
           const size = Number.isFinite(item.bytes) ? ` · ${formatCapacityBytes(item.bytes)}` : "";
-          const action = item.uploaded ? "" : ` data-file="${escapeHtml(item.name)}"`;
+          const action = item.uploaded ? "" : ` data-file="${escapeHtml(banklessSampleKey(item))}"`;
           return cloudSamples
             ? `<button class="sample-file-pill sample-remove-file" type="button"${action}${item.uploaded ? " disabled" : ""}>${escapeHtml(item.name)}${size}</button>`
             : `<span class="sample-file-pill">${escapeHtml(item.name)}${size}</span>`;
@@ -596,12 +607,13 @@
       let removedBytes = 0;
       if (payload.bankless) {
         const before = payload.libraryFiles || [];
-        const hit = before.find((item) => item.name === filename);
-        removedBytes = Number(hit?.bytes) || 0;
-        payload.libraryFiles = before.filter((item) => item.name !== filename);
-        payload.wavs = (payload.wavs || []).filter((item) => item.name !== filename);
+        const hit = before.find((item) => item.name === filename || item.sourceWav === filename);
+        const deleteName = hit?.sourceWav || filename;
+        removedBytes = banklessSampleBytes(hit, payload);
+        payload.libraryFiles = before.filter((item) => item.name !== filename && item.sourceWav !== filename);
+        payload.wavs = (payload.wavs || []).filter((item) => item.name !== deleteName && item.name !== filename);
         const deletes = sampleDeleteState(sampleState.app);
-        if (!deletes.files.includes(filename)) deletes.files.push(filename);
+        if (!deletes.files.includes(deleteName)) deletes.files.push(deleteName);
       } else {
         const bank = (payload.banks || []).find((item) => item.name === bankName);
         if (!bank) return;
