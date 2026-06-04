@@ -7,6 +7,12 @@
   Pico-Eurorack Bootloader Apps client app catalog, page parameters, hardware notes, and LED themes.
 */
 
+    window.PICO_API_BASE = window.location.protocol === "file:"
+      ? null
+      : ["127.0.0.1", "localhost"].includes(window.location.hostname)
+        ? ""
+        : "https://pico-api.fmsynth.workers.dev";
+
     function app(name, description, pages, hardware, information = info(false, "")) {
       return { name, description, pages, hardware, info: information };
     }
@@ -136,7 +142,10 @@
           ], io("Audio input", "Main", "Trigger in", "Audio out"), info(true, "Green led indicates output level, red led indicates ducking active")),
           app("SpectralSmash", "Freeze / tear spectral processor", [
             page("SPECTRAL", ["Warp / tear", "Blur", "Time smear", "Wet / dry mix"], led("blue"))
-          ], io("Audio in", "Short press freeze, hold recaptures", "Right audio out", "Left audio out"), info(false, ""))
+          ], io("Audio in", "Short press freeze, hold recaptures", "Right audio out", "Left audio out"), info(false, "")),
+          app("Tremolo", "Tremolo effect", [
+            page("Main", ["Depth", "Speed", "Dry/wet mix", "Output level"], led("red"))
+          ], io("Audio in", "Unused", "Speed CV in", "Audio out"), info(false, ""))
         ]
       }
     };

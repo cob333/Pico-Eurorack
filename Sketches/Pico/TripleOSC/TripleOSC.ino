@@ -74,7 +74,7 @@ I2S DAC(OUTPUT);  // using PCM1103 stereo DAC
 
 // including the source files is a pain but that way you compile in only the modules you need
 // DaisySP statically allocates memory and some modules e.g. reverb use a lot of ram
-#include "synthesis/oscillator.cpp"
+#include "Synthesis/oscillator.cpp"
 
 // we will use only the anitaliased versions of the waveforms
 // *** something is wrong here - daisySP generates a ramp instead of a square wave
@@ -96,7 +96,7 @@ volatile bool oscEnabled[OSCSPERVOICE] = {1,1,1};
 // create daisySP processing objects
 Oscillator osc[VOICES * OSCSPERVOICE];
 
-#define CV_VOLT_DEFAULT 580.6f  // default a/d counts per volt - trim for V/octave
+#define CV_VOLT_DEFAULT 582.52f  // default a/d counts per volt - trim for V/octave
 
 #define NUMUISTATES 1 // only 1 page in this UI
 enum UIstates {OSCS};

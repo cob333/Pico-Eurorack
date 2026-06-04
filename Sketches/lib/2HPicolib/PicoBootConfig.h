@@ -83,8 +83,8 @@ static inline const PicoBootConfig *PicoBootConfigAt(uint32_t flash_offset) {
 
 static inline void PicoBootCalibrationDefaults(PicoBootCalibration *cal) {
   memset(cal, 0, sizeof(*cal));
-  cal->cv1_counts_per_volt = 580.6f;
-  cal->cv2_counts_per_volt = 580.6f;
+  cal->cv1_counts_per_volt = 582.52f;
+  cal->cv2_counts_per_volt = 582.52f;
   cal->cvout_counts_per_volt = 6553.4f;
   cal->cv1_zero_counts = 4095.0f;
   cal->cv2_zero_counts = 4095.0f;

@@ -2,6 +2,7 @@
 // Copyright 2025 Rich Heslip
 //
 // Author: Rich Heslip 
+// Contributor: Wenhao Yang
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -104,9 +105,9 @@ I2S DAC(OUTPUT);  // using PCM1103 stereo DAC
 
 // including the source files is a pain but that way you compile in only the modules you need
 // DaisySP statically allocates memory and some modules e.g. reverb use a lot of ram
-#include "synthesis/oscillator.cpp"
-#include "control/adsr.cpp"
-#include "filters/Moogladder.cpp"
+#include "Synthesis/oscillator.cpp"
+#include "Control/adsr.cpp"
+#include "Filters/moogladder.cpp"
 
 float samplerate=SAMPLERATE;  // for DaisySP
 
@@ -136,7 +137,7 @@ MoogLadder filt;
 // there is a significant movement of the pots when the pots are "locked"
 // this prevents a waveform or level change ("shift" parameters) from changing the ramp times when the shift button is released
 
-#define CV_VOLT 580.6  // a/d counts per volt - trim for V/octave
+#define CV_VOLT 582.52f  // a/d counts per volt - trim for V/octave
 
 #define OSC_MIN_FREQ 20
 #define FILTER_MIN_FREQ 50
@@ -322,8 +323,5 @@ static  int32_t outsample;
   digitalWrite(CPU_USE,1); // hi = CPU busy
 #endif
 }
-
-
-
 
 

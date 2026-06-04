@@ -62,12 +62,12 @@ I2S DAC(OUTPUT);  // PT8211/PCM5102 etc.
 
 #include "daisysp.h"
 // pull in just the modules we need to keep binary size down
-#include "filters/svf.cpp"
-#include "synthesis/oscillator.cpp"
-#include "drums/analogbassdrum.cpp"
-#include "drums/synthbassdrum.cpp"
-#include "drums/hihat.cpp"
-#include "drums/synthsnaredrum.cpp"
+#include "Filters/svf.cpp"
+#include "Synthesis/oscillator.cpp"
+#include "Drums/analogbassdrum.cpp"
+#include "Drums/synthbassdrum.cpp"
+#include "Drums/hihat.cpp"
+#include "Drums/synthsnaredrum.cpp"
 
 using namespace daisysp;
 

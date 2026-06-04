@@ -94,7 +94,7 @@ I2S DAC(OUTPUT);  //
 #define GATELOW 32767
 
 
-#define CV1IN_VOLT 580.6  // a/d count per volt - trim for V/octave
+#define CV1IN_VOLT 582.52  // a/d count per volt - trim for V/octave
 #define CV1IN AIN0   // CV1 input - top jack
 #define CV2IN AIN1   // CV2 input - top jack
 #define CV_AVERAGING 10  // A/D average over this many readings

@@ -93,8 +93,15 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
     build_dir = ROOT / "Bootloader" / "build"
     if shutil.which("cmake") is None:
         raise RuntimeError("missing selector UF2 and cmake is not available to build it")
+    pico_sdk_path = os.environ.get("PICO_SDK_PATH")
+    if not pico_sdk_path:
+        local_sdk = Path.home() / "Library" / "Arduino15" / "packages" / "rp2040" / "hardware" / "rp2040" / "5.5.0" / "pico-sdk"
+        if (local_sdk / "external" / "pico_sdk_import.cmake").exists():
+            pico_sdk_path = str(local_sdk)
 
     if not (build_dir / "build.ninja").exists() and not (build_dir / "Makefile").exists():
+        if job:
+            job.update(4, "Configuring selector")
         configure_cmd = [
             "cmake",
             "-S",
@@ -103,10 +110,14 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
             str(build_dir),
             "-DPICO_BOARD=pico2",
         ]
+        if pico_sdk_path:
+            configure_cmd.append(f"-DPICO_SDK_PATH={pico_sdk_path}")
         if shutil.which("ninja"):
             configure_cmd.extend(["-G", "Ninja"])
         run_command(configure_cmd, job)
 
+    if job:
+        job.update(4, "Building selector")
     run_command(["cmake", "--build", str(build_dir), "--target", "pico_selector"], job)
 
 
@@ -172,6 +183,7 @@ APPS = [
     AppDef("Panner", "picofx", "Panner", "Sketches/PicoFX/Panner", "Build/PicoFX/150MHz/Panner_150MHz.uf2"),
     AppDef("Space", "picofx", "Space", "Sketches/PicoFX/Space", None),
     AppDef("SpectralSmash", "picofx", "SpectralSmash", "Sketches/PicoFX/SpectralSmash", None),
+    AppDef("Tremolo", "picofx", "Tremolo", "Sketches/PicoFX/Tremolo", None),
 ]
 
 APP_BY_ID = {app.id: app for app in APPS}
@@ -181,6 +193,8 @@ SAMPLE_APPS = {
     "GridsSampler": ROOT / "Sketches" / "Pico" / "GridsSampler" / "Samples",
     "OneshotSampler": ROOT / "Sketches" / "Pico" / "OneshotSampler" / "Samples",
 }
+WAV2HEADER_SOURCE = ROOT / "Sketches" / "Pico" / "resources" / "Wav2Header" / "wav2header44khz.c"
+WAV2HEADER_TOOL = BUILD_ROOT / "tools" / "wav2header44khz"
 SAMPLE_LOCK = threading.RLock()
 
 
@@ -339,35 +353,63 @@ def app_size(app: AppDef, build_missing: bool = False) -> dict:
 
 
 def size_probe_uf2(app: AppDef, build_missing: bool = False) -> Path | None:
+    prune_size_cache_root()
     build_path = size_cache_build_path(app)
+    prune_size_cache_build_path(build_path)
     cached = sorted(build_path.glob("*.ino.uf2"))
     if cached:
         return cached[0]
     if not build_missing:
         return None
     try:
-        return build_slot_to_path(
+        uf2_path = build_slot_to_path(
             0,
             app,
             build_path,
             BOOT.PICO_SELECTOR_FIRST_APP_OFFSET,
             APP_REGION_BYTES,
         )
+        prune_size_cache_build_path(build_path)
+        prune_size_cache_root()
+        return uf2_path
     except Exception as exc:
         match = re.search(r"region `FLASH' overflowed by (\d+) bytes", str(exc))
         if match:
             raise SizeOverflow(APP_REGION_BYTES + int(match.group(1))) from exc
-        return None
+        raise RuntimeError(f"cannot build size probe for {app.name}:\n{exc}") from exc
 
 
 def size_cache_build_path(app: AppDef) -> Path:
     return SIZE_CACHE_ROOT / f"slot0-{slug(app.id)}"
 
 
-def manifest_payload() -> dict:
+def prune_size_cache_build_path(build_path: Path) -> None:
+    if not build_path.exists():
+        return
+    for item in build_path.iterdir():
+        if item.is_file() and item.suffix == ".uf2":
+            continue
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink(missing_ok=True)
+
+
+def prune_size_cache_root() -> None:
+    if not SIZE_CACHE_ROOT.exists():
+        return
+    sketches = SIZE_CACHE_ROOT / "_sketches"
+    if sketches.exists():
+        shutil.rmtree(sketches)
+    for item in SIZE_CACHE_ROOT.iterdir():
+        if item.is_file() and item.suffix != ".uf2":
+            item.unlink(missing_ok=True)
+
+
+def manifest_payload(build_missing: bool = False) -> dict:
     apps = []
     for app in APPS:
-        apps.append(app_payload(app, build_missing=False))
+        apps.append(app_payload(app, build_missing=build_missing))
     try:
         selector_path = display_path(selector_uf2_path())
     except RuntimeError:
@@ -390,6 +432,16 @@ def app_payload(app: AppDef, build_missing: bool = False) -> dict:
         "name": app.name,
         "sketch": app.sketch,
     }
+    if build_missing and not app.sketch_path.exists():
+        row.update(
+            {
+                "sizeBytes": None,
+                "allocatedBytes": None,
+                "fitsRegion": None,
+                "source": None,
+            }
+        )
+        return row
     row.update(app_size(app, build_missing=build_missing))
     return row
 
@@ -460,7 +512,18 @@ def sample_includes_from_header(sample_root: Path) -> list[dict]:
         try:
             path.relative_to(sample_root.resolve())
             if path.exists():
+                item["headerBytes"] = path.stat().st_size
                 item["bytes"] = path.stat().st_size
+                source_match = re.search(
+                    r"Converted from\s+(.+?),\s+using",
+                    path.read_text(errors="replace"),
+                )
+                if source_match:
+                    source_wav = source_match.group(1).strip()
+                    item["sourceWav"] = source_wav
+                    source_path = sample_root / source_wav
+                    if source_path.exists():
+                        item["bytes"] = source_path.stat().st_size
         except ValueError:
             pass
         includes.append(item)
@@ -500,6 +563,14 @@ def samples_payload(app_id: str) -> dict:
         "root": str(root.relative_to(ROOT)),
         "banks": banks,
         "bankless": False,
+    }
+
+
+def sample_defaults_payload() -> dict:
+    return {
+        app_id: samples_payload(app_id)
+        for app_id in sorted(SAMPLE_APPS)
+        if SAMPLE_APPS[app_id].exists()
     }
 
 
@@ -613,12 +684,31 @@ def clamp_sample_names(sample_root: Path) -> None:
                 header.write_text(updated)
 
 
+def ensure_wav2header_tool() -> Path:
+    if not WAV2HEADER_SOURCE.exists():
+        raise RuntimeError(f"missing converter source: {WAV2HEADER_SOURCE.relative_to(ROOT)}")
+    cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+    if not cc:
+        raise RuntimeError("missing C compiler: install cc, gcc, or clang to build wav2header44khz")
+
+    needs_build = not WAV2HEADER_TOOL.exists()
+    if not needs_build:
+        needs_build = WAV2HEADER_TOOL.stat().st_mtime < WAV2HEADER_SOURCE.stat().st_mtime
+    if needs_build:
+        WAV2HEADER_TOOL.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [cc, "-O2", "-Wall", str(WAV2HEADER_SOURCE), "-o", str(WAV2HEADER_TOOL)],
+            cwd=ROOT,
+            check=True,
+        )
+        WAV2HEADER_TOOL.chmod(0o755)
+    return WAV2HEADER_TOOL
+
+
 def rebuild_sample_headers(app_id: str) -> None:
+    tool = ensure_wav2header_tool()
     if app_id == "GridsSampler":
         root = SAMPLE_APPS[app_id]
-        tool = root / "wav2header44khz"
-        if not tool.exists():
-            raise RuntimeError(f"missing converter: {tool.relative_to(ROOT)}")
         subprocess.run([str(tool)], cwd=root, check=True)
         clamp_sample_names(root)
     elif app_id == "OneshotSampler":
@@ -626,7 +716,12 @@ def rebuild_sample_headers(app_id: str) -> None:
         script = root / "exec"
         if not script.exists():
             raise RuntimeError(f"missing converter script: {script.relative_to(ROOT)}")
-        subprocess.run(["/bin/zsh", str(script)], cwd=root, check=True)
+        zsh = shutil.which("zsh")
+        if not zsh:
+            raise RuntimeError("missing zsh: install zsh to rebuild OneshotSampler sample headers")
+        env = os.environ.copy()
+        env["WAV2HEADER_TOOL"] = str(tool)
+        subprocess.run([zsh, str(script)], cwd=root, env=env, check=True)
         clamp_sample_names(root)
     else:
         raise RuntimeError(f"sample app not supported: {app_id}")
@@ -689,11 +784,26 @@ def existing_libraries() -> list[Path]:
     global LIBRARY_PATHS_CACHE
     if LIBRARY_PATHS_CACHE is not None:
         return LIBRARY_PATHS_CACHE
+    extra_libraries = [
+        Path(item).expanduser()
+        for item in os.environ.get("PICO_EXTRA_ARDUINO_LIBRARIES", "").split(os.pathsep)
+        if item
+    ]
     candidates = [
         ROOT / "Sketches" / "lib",
+        *extra_libraries,
+        ROOT / ".arduino" / "libraries",
+        Path.home() / "Arduino" / "libraries",
         Path.home() / "Documents" / "Arduino" / "libraries",
     ]
-    LIBRARY_PATHS_CACHE = [path for path in candidates if path.exists()]
+    seen = set()
+    LIBRARY_PATHS_CACHE = []
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in seen or not resolved.exists():
+            continue
+        seen.add(resolved)
+        LIBRARY_PATHS_CACHE.append(resolved)
     return LIBRARY_PATHS_CACHE
 
 
@@ -857,11 +967,14 @@ def build_slot(slot_index: int, app: AppDef, slot_offset: int, slot_size: int, j
     return build_slot_to_path(slot_index, app, build_path, slot_offset, slot_size, job)
 
 
-def plan_layout(selected: list[tuple[int, AppDef]]) -> list[dict]:
+def plan_layout(selected: list[tuple[int, AppDef]], job: BuildJob | None = None) -> list[dict]:
     next_offset = BOOT.PICO_SELECTOR_FIRST_APP_OFFSET
     region_end = BOOT.PICO_SELECTOR_FIRST_APP_OFFSET + APP_REGION_BYTES
     plan = []
-    for slot_index, app in selected:
+    total = max(1, len(selected))
+    for app_index, (slot_index, app) in enumerate(selected):
+        if job:
+            job.update(2, f"Measuring {app.name}")
         size = app_size(app, build_missing=True)
         if not isinstance(size["sizeBytes"], int):
             raise RuntimeError(f"cannot measure {app.name}")
@@ -881,6 +994,8 @@ def plan_layout(selected: list[tuple[int, AppDef]]) -> list[dict]:
             }
         )
         next_offset += allocated
+        if job:
+            job.update(2 + int(((app_index + 1) / total) * 2), f"Measured {app.name}")
     return plan
 
 
@@ -892,11 +1007,6 @@ def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path,
         raise RuntimeError("invalid device")
     if not isinstance(slots, list) or not 1 <= len(slots) <= MAX_SLOTS:
         raise RuntimeError(f"slots must contain 1 to {MAX_SLOTS} entries")
-    if job:
-        job.status = "running"
-        job.update(1, "Checking selector")
-    selector_path = selector_uf2_path(job, build_if_missing=True)
-
     selected: list[tuple[int, AppDef]] = []
     for index, app_id in enumerate(slots):
         if app_id in (None, ""):
@@ -919,9 +1029,15 @@ def generate_firmware(request: dict, job: BuildJob | None = None) -> tuple[Path,
     if sample_app_ids:
         SAMPLE_LOCK.acquire()
     try:
-        layout = plan_layout(selected)
         if job:
-            job.update(3, "Planning")
+            job.status = "running"
+            job.update(1, "Planning slots")
+        layout = plan_layout(selected, job)
+        if job:
+            job.update(4, "Checking selector")
+        selector_path = selector_uf2_path(job, build_if_missing=True)
+        if job:
+            job.update(5, "Preparing build")
         try:
             built = []
             total_steps = len(layout) + 1
@@ -1019,6 +1135,10 @@ def get_job(job_id: str | None) -> BuildJob | None:
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(CLIENT_DIR), **kwargs)
+
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)

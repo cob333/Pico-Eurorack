@@ -37,6 +37,8 @@
     const usageFill = document.getElementById("usageFill");
     const usageLabel = document.getElementById("usageLabel");
     const slotTrash = document.getElementById("slotTrash");
+    const slotHelpButton = document.querySelector(".slot-help-button");
+    const slotHelpPopover = document.getElementById("slotHelpPopover");
     const clearAllSlots = document.getElementById("clearAllSlots");
     const generateButton = document.getElementById("generateButton");
     const generationStatus = document.getElementById("generationStatus");
@@ -67,7 +69,7 @@
         bankless: true
       },
       OneshotSampler: {
-        subtitle: "Upload WAV files into an existing or new Oneshot bank.",
+        subtitle: "Upload WAV files.",
         bankless: false
       }
     };
@@ -77,12 +79,16 @@
       storageBytes: DEFAULT_STORAGE_BYTES,
       slotAlignBytes: 4096,
       maxSlots: 6,
+      baseAppsByName: new Map(),
       appsByName: new Map(),
-      baseUrl: null
+      baseUrl: window.PICO_API_BASE === undefined ? null : window.PICO_API_BASE
     };
     const sampleState = {
       app: "",
-      payload: null
+      payload: null,
+      sampleKeys: {},
+      sampleDeletes: {},
+      capacityBytes: {}
     };
     const PANEL_FOCUS = {
       IN: { x: "50%", y: "3%", scale: 2.5 },
@@ -95,7 +101,17 @@
       OUT: { x: "50%", y: "92%", scale: 2.5 }
     };
     const SLOT_COLOR_CLASSES = ["orange", "yellow", "tiffany", "aqua", "blue", "violet"];
+    let slotHelpHideTimer = 0;
 
+    if (slotHelpButton && slotHelpPopover) {
+      slotHelpButton.addEventListener("mouseenter", showSlotHelp);
+      slotHelpButton.addEventListener("focus", showSlotHelp);
+      slotHelpButton.addEventListener("mouseleave", scheduleSlotHelpHide);
+      slotHelpButton.addEventListener("blur", scheduleSlotHelpHide);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") hideSlotHelp();
+      });
+    }
     generateButton.addEventListener("click", generateFirmware);
     buildCancel.addEventListener("click", cancelBuild);
     sampleClose.addEventListener("click", closeSampleClient);
@@ -119,6 +135,29 @@
     window.addEventListener("resize", updateSegmentSliders);
     window.addEventListener("scroll", updateFooterReveal, { passive: true });
     window.addEventListener("resize", updateFooterReveal);
+
+    function showSlotHelp() {
+      if (!slotHelpPopover) return;
+      if (slotHelpHideTimer) {
+        clearTimeout(slotHelpHideTimer);
+        slotHelpHideTimer = 0;
+      }
+      slotHelpPopover.classList.add("open");
+    }
+
+    function scheduleSlotHelpHide() {
+      if (slotHelpHideTimer) clearTimeout(slotHelpHideTimer);
+      slotHelpHideTimer = window.setTimeout(hideSlotHelp, 200);
+    }
+
+    function hideSlotHelp() {
+      if (!slotHelpPopover) return;
+      if (slotHelpHideTimer) {
+        clearTimeout(slotHelpHideTimer);
+        slotHelpHideTimer = 0;
+      }
+      slotHelpPopover.classList.remove("open");
+    }
 
     function resetDeviceDefaults() {
       state.selectedSlot = 0;
@@ -157,12 +196,20 @@
 
     async function apiFetch(path, options = {}) {
       const hasPinnedBase = apiState.baseUrl !== null;
+      const isLocalClient = window.location.protocol === "file:"
+        || ["127.0.0.1", "localhost"].includes(window.location.hostname);
       const bases = hasPinnedBase ? [apiState.baseUrl] : apiCandidates();
+      if (hasPinnedBase && isLocalClient) {
+        for (const candidate of apiCandidates()) {
+          if (!bases.includes(candidate)) bases.push(candidate);
+        }
+      }
       let lastError = null;
       for (const base of bases) {
         try {
-          const response = await fetch(`${base}${path}`, options);
-          if (response.ok || hasPinnedBase) {
+          const apiUrl = base ? `${base.replace(/\/+$/, "")}${path}` : path;
+          const response = await fetch(apiUrl, options);
+          if (response.ok || (hasPinnedBase && !isLocalClient)) {
             apiState.baseUrl = base;
             return response;
           }
@@ -188,7 +235,11 @@
         apiState.storageBytes = manifest.storageBytes || DEFAULT_STORAGE_BYTES;
         apiState.slotAlignBytes = manifest.slotAlignBytes || 4096;
         apiState.maxSlots = manifest.maxSlots || 6;
-        apiState.appsByName = new Map(manifest.apps.map((item) => [item.name, item]));
+        apiState.baseAppsByName = new Map(manifest.apps.map((item) => [item.name, item]));
+        apiState.appsByName = new Map();
+        apiState.baseAppsByName.forEach((item, name) => {
+          apiState.appsByName.set(name, applySampleCapacityEstimate(item, name));
+        });
         hydrateAppMetadata();
         setStatus("Ready");
       } catch (_error) {
@@ -211,7 +262,8 @@
     function hydrateAppMetadata() {
       Object.values(DATA).forEach((device) => {
         device.apps.forEach((item) => {
-          applyAppMetadata(item, apiState.appsByName.get(item.name));
+          const meta = apiState.baseAppsByName.get(item.name) || apiState.appsByName.get(item.name);
+          applyAppMetadata(item, applySampleCapacityEstimate(meta, item.name));
         });
       });
     }
@@ -225,15 +277,137 @@
 
     function updateCatalogAppMetadata(meta) {
       if (!meta?.name) return;
-      apiState.appsByName.set(meta.name, meta);
+      apiState.baseAppsByName.set(meta.name, meta);
+      const effectiveMeta = applySampleCapacityEstimate(meta, meta.name);
+      apiState.appsByName.set(meta.name, effectiveMeta);
       Object.keys(DATA).forEach((deviceKey) => {
-        const item = APP_INDEX[deviceKey].get(meta.name);
-        if (item) applyAppMetadata(item, meta);
+        const item = APP_INDEX[deviceKey].get(effectiveMeta.name);
+        if (item) applyAppMetadata(item, effectiveMeta);
       });
       renderAppList();
       renderSlots();
       renderDetails();
       updateGenerateAvailability();
+    }
+
+    function alignCapacityBytes(bytes) {
+      const align = Number.isFinite(apiState.slotAlignBytes) && apiState.slotAlignBytes > 0 ? apiState.slotAlignBytes : 4096;
+      return Math.ceil(bytes / align) * align;
+    }
+
+    function applySampleCapacityEstimate(meta, appName) {
+      if (!meta) return meta;
+      const extraBytes = sampleState.capacityBytes[appName] || 0;
+      if (!extraBytes || !Number.isFinite(meta.sizeBytes)) return meta;
+      const sizeBytes = Math.max(0, meta.sizeBytes + extraBytes);
+      const allocatedBytes = alignCapacityBytes(sizeBytes);
+      return {
+        ...meta,
+        sizeBytes,
+        allocatedBytes,
+        fitsRegion: allocatedBytes <= apiState.storageBytes,
+        source: `${meta.source || "manifest"} + sample edits`
+      };
+    }
+
+    function sampleUploadBytes(payload) {
+      if (Number.isFinite(payload?.uploadedBytes)) return payload.uploadedBytes;
+      if (payload?.bankless) {
+        return (payload.wavs || []).reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+      }
+      return (payload?.banks || []).reduce((total, bank) => total + (Number(bank.bytes) || 0), 0);
+    }
+
+    function addSampleCapacityDelta(appName, bytes) {
+      sampleState.capacityBytes[appName] = (sampleState.capacityBytes[appName] || 0) + bytes;
+      const baseMeta = apiState.baseAppsByName.get(appName) || apiState.appsByName.get(appName);
+      if (baseMeta) updateCatalogAppMetadata(baseMeta);
+    }
+
+    function banklessSampleKey(item) {
+      return item?.sourceWav || item?.name || "";
+    }
+
+    function banklessSampleBytes(item, payload) {
+      if (!item) return 0;
+      const source = item.sourceWav || "";
+      const wav = source ? (payload.wavs || []).find((row) => row.name === source) : null;
+      return Number(wav?.bytes ?? item.bytes) || 0;
+    }
+
+    function sampleDeleteState(appName) {
+      if (!sampleState.sampleDeletes[appName]) {
+        sampleState.sampleDeletes[appName] = { files: [], banks: [] };
+      }
+      return sampleState.sampleDeletes[appName];
+    }
+
+    function mergeSamplePayload(base, uploaded) {
+      if (!base) return uploaded;
+      if (base.bankless) {
+        const uploadedWavs = (uploaded.wavs || []).map((item) => ({ ...item, uploaded: true }));
+        const uploadedFiles = (uploaded.libraryFiles || uploaded.wavs || []).map((item) => ({ ...item, uploaded: true }));
+        return {
+          ...base,
+          libraryFiles: [...(base.libraryFiles || []), ...uploadedFiles],
+          wavs: [...(base.wavs || []), ...uploadedWavs],
+          sampleKey: uploaded.sampleKey,
+          uploadedBytes: uploaded.uploadedBytes,
+          saved: uploaded.saved,
+          bank: uploaded.bank
+        };
+      }
+      const banks = (base.banks || []).map((bank) => ({ ...bank, samples: [...(bank.samples || [])] }));
+      (uploaded.banks || []).forEach((uploadedBank) => {
+        const nextBank = { ...uploadedBank, uploaded: true, samples: (uploadedBank.samples || []).map((item) => ({ ...item, uploaded: true })) };
+        const existing = banks.find((bank) => bank.name === nextBank.name);
+        if (existing) {
+          existing.samples.push(...nextBank.samples);
+          existing.count = existing.samples.length;
+          existing.bytes = (Number(existing.bytes) || 0) + (Number(nextBank.bytes) || 0);
+        } else {
+          banks.push(nextBank);
+        }
+      });
+      return {
+        ...base,
+        banks,
+        sampleKey: uploaded.sampleKey,
+        uploadedBytes: uploaded.uploadedBytes,
+        saved: uploaded.saved,
+        bank: uploaded.bank
+      };
+    }
+
+    function applyCurrentSampleDeletes(payload) {
+      const deletes = sampleState.sampleDeletes[payload.app];
+      if (!deletes) return payload;
+      if (payload.bankless) {
+        const fileNames = new Set(deletes.files || []);
+        return {
+          ...payload,
+          libraryFiles: (payload.libraryFiles || []).filter((item) => !fileNames.has(item.name)),
+          wavs: (payload.wavs || []).filter((item) => !fileNames.has(item.name))
+        };
+      }
+      const removedBanks = new Set(deletes.banks || []);
+      const removedFiles = new Set((deletes.files || []).map((item) => `${item.bank}/${item.name}`));
+      const banks = (payload.banks || [])
+        .filter((bank) => !removedBanks.has(bank.name))
+        .map((bank) => {
+          const samples = (bank.samples || []).filter((item) => !removedFiles.has(`${bank.name}/${item.name}`));
+          const bytes = samples.reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+          return {
+            ...bank,
+            samples,
+            count: samples.length,
+            bytes
+          };
+        });
+      return {
+        ...payload,
+        banks
+      };
     }
 
     function setStatus(message, isError = false) {
@@ -337,7 +511,7 @@
         const response = await apiFetch(`/api/samples?app=${encodeURIComponent(sampleState.app)}`, { cache: "no-store" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || `Samples HTTP ${response.status}`);
-        sampleState.payload = payload;
+        sampleState.payload = applyCurrentSampleDeletes(payload);
         renderSampleClient();
         sampleStatus.textContent = "Ready";
         sampleStatus.classList.remove("error");
@@ -350,6 +524,7 @@
     function renderSampleClient() {
       const payload = sampleState.payload;
       if (!payload) return;
+      const cloudSamples = Boolean(payload.cloud);
       if (payload.bankless) {
         sampleBankName.hidden = true;
         sampleBankName.disabled = true;
@@ -357,7 +532,10 @@
         const wavs = payload.wavs || [];
         const files = libraryFiles.slice(0, 72).map((item) => {
           const size = Number.isFinite(item.bytes) ? ` · ${formatCapacityBytes(item.bytes)}` : "";
-          return `<span class="sample-file-pill">${escapeHtml(item.name)}${size}</span>`;
+          const action = item.uploaded ? "" : ` data-file="${escapeHtml(banklessSampleKey(item))}"`;
+          return cloudSamples
+            ? `<button class="sample-file-pill sample-remove-file" type="button"${action}${item.uploaded ? " disabled" : ""}>${escapeHtml(item.name)}${size}</button>`
+            : `<span class="sample-file-pill">${escapeHtml(item.name)}${size}</span>`;
         }).join("");
         const hiddenCount = Math.max(0, libraryFiles.length - 72);
         sampleBankList.innerHTML = `
@@ -372,6 +550,11 @@
             </div>
           </section>
         `;
+        if (cloudSamples) {
+          sampleBankList.querySelectorAll(".sample-remove-file").forEach((button) => {
+            button.addEventListener("click", () => removeDefaultSampleFile(button.dataset.file || ""));
+          });
+        }
         return;
       }
 
@@ -381,8 +564,12 @@
       sampleBankName.placeholder = "New Bank";
 
       sampleBankList.innerHTML = banks.map((bank) => {
+        const bankHasDefaults = (bank.samples || []).some((item) => !item.uploaded);
         const files = (bank.samples || []).slice(0, 36).map((item) => {
-          return `<span class="sample-file-pill">${escapeHtml(item.name)} · ${formatCapacityBytes(item.bytes)}</span>`;
+          const action = item.uploaded ? "" : ` data-bank="${escapeHtml(bank.name)}" data-file="${escapeHtml(item.name)}"`;
+          return cloudSamples
+            ? `<button class="sample-file-pill sample-remove-file" type="button"${action}${item.uploaded ? " disabled" : ""}>${escapeHtml(item.name)} · ${formatCapacityBytes(item.bytes)}</button>`
+            : `<span class="sample-file-pill">${escapeHtml(item.name)} · ${formatCapacityBytes(item.bytes)}</span>`;
         }).join("");
         const hiddenCount = Math.max(0, (bank.samples || []).length - 36);
         return `
@@ -390,7 +577,7 @@
             <div class="sample-bank-head">
               <div class="sample-bank-title">
                 <strong>${escapeHtml(bank.name)}</strong>
-                <button class="sample-delete-bank" type="button" data-bank="${escapeHtml(bank.name)}">Delete</button>
+                <button class="sample-delete-bank" type="button" data-bank="${escapeHtml(bank.name)}"${cloudSamples && !bankHasDefaults ? " disabled" : ""}>${cloudSamples ? "Remove" : "Delete"}</button>
               </div>
               <span>${bank.count} samples · ${formatCapacityBytes(bank.bytes)}</span>
             </div>
@@ -402,8 +589,73 @@
         `;
       }).join("") || `<div class="empty-state">No sample banks found.</div>`;
       sampleBankList.querySelectorAll(".sample-delete-bank").forEach((button) => {
-        button.addEventListener("click", () => deleteSampleBank(button.dataset.bank || ""));
+        button.addEventListener("click", () => {
+          if (cloudSamples) removeDefaultSampleBank(button.dataset.bank || "");
+          else deleteSampleBank(button.dataset.bank || "");
+        });
       });
+      if (cloudSamples) {
+        sampleBankList.querySelectorAll(".sample-remove-file").forEach((button) => {
+          button.addEventListener("click", () => removeDefaultSampleFile(button.dataset.file || "", button.dataset.bank || ""));
+        });
+      }
+    }
+
+    function removeDefaultSampleFile(filename, bankName = "") {
+      if (!sampleState.app || !filename || !sampleState.payload) return;
+      const payload = sampleState.payload;
+      let removedBytes = 0;
+      if (payload.bankless) {
+        const before = payload.libraryFiles || [];
+        const hit = before.find((item) => item.name === filename || item.sourceWav === filename);
+        const deleteName = hit?.sourceWav || filename;
+        removedBytes = banklessSampleBytes(hit, payload);
+        payload.libraryFiles = before.filter((item) => item.name !== filename && item.sourceWav !== filename);
+        payload.wavs = (payload.wavs || []).filter((item) => item.name !== deleteName && item.name !== filename);
+        const deletes = sampleDeleteState(sampleState.app);
+        if (!deletes.files.includes(deleteName)) deletes.files.push(deleteName);
+      } else {
+        const bank = (payload.banks || []).find((item) => item.name === bankName);
+        if (!bank) return;
+        const hit = (bank.samples || []).find((item) => item.name === filename);
+        removedBytes = Number(hit?.bytes) || 0;
+        bank.samples = (bank.samples || []).filter((item) => item.name !== filename);
+        bank.count = bank.samples.length;
+        bank.bytes = Math.max(0, (Number(bank.bytes) || 0) - removedBytes);
+        const deletes = sampleDeleteState(sampleState.app);
+        const entry = { bank: bankName, name: filename };
+        if (!deletes.files.some((item) => item.bank === entry.bank && item.name === entry.name)) {
+          deletes.files.push(entry);
+        }
+      }
+      if (removedBytes) addSampleCapacityDelta(sampleState.app, -removedBytes);
+      renderSampleClient();
+      sampleStatus.textContent = `Removed ${filename} from this build. Upload refreshes the estimated total capacity.`;
+      sampleStatus.classList.remove("error");
+    }
+
+    function removeDefaultSampleBank(bankName) {
+      if (!sampleState.app || !bankName || !sampleState.payload || sampleState.payload.bankless) return;
+      const banks = sampleState.payload.banks || [];
+      const bank = banks.find((item) => item.name === bankName);
+      if (!bank) return;
+      const uploadedSamples = (bank.samples || []).filter((item) => item.uploaded);
+      const defaultSamples = (bank.samples || []).filter((item) => !item.uploaded);
+      const removedBytes = defaultSamples.reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+      if (!removedBytes) return;
+      if (uploadedSamples.length) {
+        bank.samples = uploadedSamples;
+        bank.count = uploadedSamples.length;
+        bank.bytes = uploadedSamples.reduce((total, item) => total + (Number(item.bytes) || 0), 0);
+      } else {
+        sampleState.payload.banks = banks.filter((item) => item.name !== bankName);
+      }
+      const deletes = sampleDeleteState(sampleState.app);
+      if (!deletes.banks.includes(bankName)) deletes.banks.push(bankName);
+      addSampleCapacityDelta(sampleState.app, -removedBytes);
+      renderSampleClient();
+      sampleStatus.textContent = `Removed ${bankName} from this build. Upload refreshes the estimated total capacity.`;
+      sampleStatus.classList.remove("error");
     }
 
     async function uploadSampleFiles(event) {
@@ -442,7 +694,16 @@
           });
           result = await response.json();
           if (!response.ok) throw new Error(result.error || `Upload HTTP ${response.status}`);
-          sampleState.payload = result;
+          sampleState.payload = mergeSamplePayload(sampleState.payload, result);
+          if (result.sampleKey) {
+            const existingKeys = sampleState.sampleKeys[sampleState.app];
+            const keys = Array.isArray(existingKeys) ? existingKeys : (existingKeys ? [existingKeys] : []);
+            if (!keys.includes(result.sampleKey)) {
+              keys.push(result.sampleKey);
+            }
+            sampleState.sampleKeys[sampleState.app] = keys;
+            addSampleCapacityDelta(sampleState.app, sampleUploadBytes(result));
+          }
           sampleFiles.value = "";
           sampleBankName.value = "";
           renderSampleClient();
@@ -456,9 +717,9 @@
         sampleModal.setAttribute("aria-hidden", "false");
         if (hasFiles) {
           const destination = result.bank ? ` to ${result.bank}` : "";
-          sampleStatus.textContent = `Uploaded ${result.saved.length} file${result.saved.length === 1 ? "" : "s"}${destination}. Capacity updated.`;
+          sampleStatus.textContent = `Uploaded ${result.saved.length} file${result.saved.length === 1 ? "" : "s"}${destination}. Estimated total capacity updated.`;
         } else {
-          sampleStatus.textContent = "Capacity updated.";
+          sampleStatus.textContent = "Estimated total capacity updated.";
         }
       } catch (error) {
         endBuildUi(false);
@@ -930,7 +1191,9 @@
           body: JSON.stringify({
             device: state.device,
             slots: slotIds,
-            active: state.selectedSlot
+            active: state.selectedSlot,
+            sampleKeys: sampleState.sampleKeys,
+            sampleDeletes: sampleState.sampleDeletes
           })
         });
         if (!response.ok) {
@@ -970,7 +1233,7 @@
           throw new Error(job.error || "Generate failed");
         }
 
-        state.progressTimer = window.setTimeout(pollBuildStatus, 500);
+        state.progressTimer = window.setTimeout(pollBuildStatus, 3000);
       } catch (error) {
         setStatus(error.message || "Generate failed", true);
         endBuildUi(false);

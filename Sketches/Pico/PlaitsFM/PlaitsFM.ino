@@ -119,7 +119,7 @@ int16_t outputmix=OUTPUTMAX; // mix of normal and aux output
 
 float trigger_in = 0.0f;
 
-#define CVIN_VOLT 580.6  // a/d count per volt - **** adjust this value to calibrate V/octave input
+#define CVIN_VOLT 582.52  // a/d count per volt - **** adjust this value to calibrate V/octave input
 #define EEPROM_BYTES 256
 #define PLAITSFM_STORE_MAGIC 0x32464d50u // "2FMP"
 #define PLAITSFM_STORE_VERSION 2u

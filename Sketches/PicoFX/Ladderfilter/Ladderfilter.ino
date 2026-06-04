@@ -74,13 +74,13 @@ I2S i2s(INPUT_PULLUP); // both input and output
 
 // including the source files is a pain but that way you compile in only the modules you need
 // DaisySP statically allocates memory and some modules e.g. reverb use a lot of ram
-#include "filters/Moogladder.cpp"
+#include "Filters/moogladder.cpp"
 
 float samplerate=SAMPLERATE;  // for DaisySP
 
 MoogLadder filt;
 
-#define CV_VOLT 580.6  // a/d counts per volt - trim for V/octave
+#define CV_VOLT 582.52  // a/d counts per volt - trim for V/octave
 
 #define NUMUISTATES 1 // 
 enum UIstates {SET1};
