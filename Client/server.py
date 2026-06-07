@@ -184,6 +184,7 @@ APPS = [
     AppDef("Space", "picofx", "Space", "Sketches/PicoFX/Space", None),
     AppDef("SpectralSmash", "picofx", "SpectralSmash", "Sketches/PicoFX/SpectralSmash", None),
     AppDef("Tremolo", "picofx", "Tremolo", "Sketches/PicoFX/Tremolo", None),
+    AppDef("Clouds", "picofx", "Clouds", "Sketches/PicoFX/Clouds", None),
 ]
 
 APP_BY_ID = {app.id: app for app in APPS}

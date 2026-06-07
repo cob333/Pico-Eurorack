@@ -149,7 +149,12 @@
           ], io("Audio in", "Short press freeze, hold recaptures", "Right audio out", "Left audio out"), info(false, "")),
           app("Tremolo", "Tremolo effect", [
             page("Main", ["Depth", "Speed", "Dry/wet mix", "Output level"], led("red"))
-          ], io("Audio in", "Unused", "Speed CV in", "Audio out"), info(false, ""))
+          ], io("Audio in", "Unused", "Speed CV in", "Audio out"), info(false, "")),
+          app("Clouds", "Mutable granular processor", [
+            page("GREEN", ["Position", "Size", "Density", "Texture"], led("green")),
+            page("YELLOW", ["Dry/Wet", "Stereo Spread", "Feedback", "Reverb"], led("yellow")),
+            page("ORANGE", ["Pitch", "Mode", "Quality", "Slot"], led("orange"))
+          ], io("Audio in", "Click pages, hold 3s freeze", "Right audio out", "Left audio out"), info(true, "Freeze alternates the current page LED with blue. Mode colors: Granular Tiffany, Stretch Aqua, Looping Delay Violet. Quality Colors: Tiffany 16-bit-stereo, Aqua 16 bit-mono, Violet 8-bit-stereo, Red 8-bit-mono."))
         ]
       }
     };
