@@ -62,8 +62,12 @@ export default {
 
 function cors(request, env) {
   const origin = request.headers.get("Origin") || "";
-  const allowed = env.ALLOWED_ORIGIN || "*";
-  const allowOrigin = allowed === "*" || origin === allowed ? (origin || allowed) : allowed;
+  const allowed = env.ALLOWED_ORIGINS || env.ALLOWED_ORIGIN || "*";
+  const allowedOrigins = allowed.split(",").map((item) => item.trim()).filter(Boolean);
+  const allowAny = allowedOrigins.includes("*");
+  const allowOrigin = allowAny
+    ? "*"
+    : (origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0] || "*");
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",

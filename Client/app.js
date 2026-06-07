@@ -27,6 +27,7 @@
       generating: false,
       buildJobId: "",
       progressTimer: 0,
+      apiRetryTimer: 0,
       slots: ["", "", "", "", "", ""]
     };
 
@@ -74,6 +75,7 @@
       }
     };
     const DEFAULT_STORAGE_BYTES = 3584 * 1024;
+    const API_REQUEST_TIMEOUT_MS = 12000;
     const apiState = {
       available: false,
       storageBytes: DEFAULT_STORAGE_BYTES,
@@ -81,6 +83,7 @@
       maxSlots: 6,
       baseAppsByName: new Map(),
       appsByName: new Map(),
+      baseUrls: normalizeApiBases(window.PICO_API_BASES),
       baseUrl: window.PICO_API_BASE === undefined ? null : window.PICO_API_BASE
     };
     const sampleState = {
@@ -185,40 +188,95 @@
       document.documentElement.style.setProperty("--footer-progress", progress.toFixed(3));
     }
 
+    function normalizeApiBases(value) {
+      const values = Array.isArray(value)
+        ? value
+        : (value === undefined || value === null ? [] : [value]);
+      const bases = [];
+      values.forEach((base) => {
+        if (typeof base !== "string") return;
+        const normalized = base.trim().replace(/\/+$/, "");
+        if (!bases.includes(normalized)) bases.push(normalized);
+      });
+      return bases;
+    }
+
     function apiCandidates() {
+      const bases = [...apiState.baseUrls];
       const sameOrigin = window.location.protocol === "http:" || window.location.protocol === "https:";
-      const bases = sameOrigin ? [""] : [];
-      for (let port = 8765; port < 8785; port += 1) {
-        bases.push(`http://127.0.0.1:${port}`);
+      if (sameOrigin && !bases.includes("")) bases.push("");
+      const isLocalClient = window.location.protocol === "file:"
+        || ["127.0.0.1", "localhost"].includes(window.location.hostname);
+      if (isLocalClient) {
+        for (let port = 8765; port < 8785; port += 1) {
+          const localBase = `http://127.0.0.1:${port}`;
+          if (!bases.includes(localBase)) bases.push(localBase);
+        }
       }
       return bases;
+    }
+
+    async function fetchWithTimeout(url, options = {}) {
+      if (options.signal) return await fetch(url, options);
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+      try {
+        return await fetch(url, { ...options, signal: controller.signal });
+      } finally {
+        window.clearTimeout(timer);
+      }
     }
 
     async function apiFetch(path, options = {}) {
       const hasPinnedBase = apiState.baseUrl !== null;
       const isLocalClient = window.location.protocol === "file:"
         || ["127.0.0.1", "localhost"].includes(window.location.hostname);
-      const bases = hasPinnedBase ? [apiState.baseUrl] : apiCandidates();
-      if (hasPinnedBase && isLocalClient) {
-        for (const candidate of apiCandidates()) {
-          if (!bases.includes(candidate)) bases.push(candidate);
-        }
+      const bases = hasPinnedBase ? [apiState.baseUrl] : [];
+      for (const candidate of apiCandidates()) {
+        if (!bases.includes(candidate)) bases.push(candidate);
       }
       let lastError = null;
       for (const base of bases) {
         try {
           const apiUrl = base ? `${base.replace(/\/+$/, "")}${path}` : path;
-          const response = await fetch(apiUrl, options);
-          if (response.ok || (hasPinnedBase && !isLocalClient)) {
+          const response = await fetchWithTimeout(apiUrl, options);
+          if (response.ok) {
             apiState.baseUrl = base;
             return response;
           }
+          if (hasPinnedBase && !isLocalClient && base === apiState.baseUrl) return response;
           lastError = new Error(`HTTP ${response.status}`);
         } catch (error) {
           lastError = error;
         }
       }
       throw lastError || new Error("API unavailable");
+    }
+
+    async function loadStaticManifest() {
+      const response = await fetchWithTimeout("./manifest.json", { cache: "no-store" });
+      if (!response.ok) throw new Error(`Static manifest HTTP ${response.status}`);
+      return await response.json();
+    }
+
+    function scheduleApiReconnect() {
+      if (state.apiRetryTimer || apiState.available) return;
+      state.apiRetryTimer = window.setTimeout(() => {
+        state.apiRetryTimer = 0;
+        loadManifest(false);
+      }, 8000);
+    }
+
+    function applyManifest(manifest) {
+      apiState.storageBytes = manifest.storageBytes || DEFAULT_STORAGE_BYTES;
+      apiState.slotAlignBytes = manifest.slotAlignBytes || 4096;
+      apiState.maxSlots = manifest.maxSlots || 6;
+      apiState.baseAppsByName = new Map(manifest.apps.map((item) => [item.name, item]));
+      apiState.appsByName = new Map();
+      apiState.baseAppsByName.forEach((item, name) => {
+        apiState.appsByName.set(name, applySampleCapacityEstimate(item, name));
+      });
+      hydrateAppMetadata();
     }
 
     async function loadManifest(showProgress = false) {
@@ -232,25 +290,29 @@
         if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
         const manifest = await response.json();
         apiState.available = true;
-        apiState.storageBytes = manifest.storageBytes || DEFAULT_STORAGE_BYTES;
-        apiState.slotAlignBytes = manifest.slotAlignBytes || 4096;
-        apiState.maxSlots = manifest.maxSlots || 6;
-        apiState.baseAppsByName = new Map(manifest.apps.map((item) => [item.name, item]));
-        apiState.appsByName = new Map();
-        apiState.baseAppsByName.forEach((item, name) => {
-          apiState.appsByName.set(name, applySampleCapacityEstimate(item, name));
-        });
-        hydrateAppMetadata();
+        if (state.apiRetryTimer) {
+          window.clearTimeout(state.apiRetryTimer);
+          state.apiRetryTimer = 0;
+        }
+        applyManifest(manifest);
         setStatus("Ready");
       } catch (_error) {
-        apiState.available = false;
-        hydrateAppMetadata();
-        setStatus("API offline", true);
+        try {
+          applyManifest(await loadStaticManifest());
+          apiState.available = false;
+          setStatus("Catalog ready");
+          scheduleApiReconnect();
+        } catch (_staticError) {
+          apiState.available = false;
+          hydrateAppMetadata();
+          setStatus("API offline", true);
+          scheduleApiReconnect();
+        }
       }
       render();
       if (showProgress) {
         try {
-          setBuildProgress(100, apiState.available ? "Catalog ready" : "API offline");
+          setBuildProgress(100, apiState.baseAppsByName.size ? "Catalog ready" : "API offline");
           await delay(220);
         } finally {
           endBuildUi(false);
@@ -989,7 +1051,7 @@
       generateButton.classList.toggle("blocked", !canGenerate);
 
       if (updateStatus && !state.generating) {
-        if (!apiState.available) setStatus("API offline", true);
+        if (!apiState.available) setStatus(apiState.baseAppsByName.size ? "Build API offline" : "API offline", true);
         else if (!count) setStatus("Select app");
         else if (!withinStorage) setStatus("Storage full", true);
         else setStatus("Ready");

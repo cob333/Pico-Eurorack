@@ -7,11 +7,15 @@
   Pico-Eurorack Bootloader Apps client app catalog, page parameters, hardware notes, and LED themes.
 */
 
-    window.PICO_API_BASE = window.location.protocol === "file:"
-      ? null
-      : ["127.0.0.1", "localhost"].includes(window.location.hostname)
-        ? ""
-        : "https://pico-api.fmsynth.workers.dev";
+    const PICO_CLOUD_API_BASE = "https://pico-api.fmsynth.workers.dev";
+    const PICO_LOCAL_HOSTS = ["127.0.0.1", "localhost"];
+
+    window.PICO_API_BASES = window.location.protocol === "file:"
+      ? []
+      : PICO_LOCAL_HOSTS.includes(window.location.hostname)
+        ? [""]
+        : [PICO_CLOUD_API_BASE];
+    window.PICO_API_BASE = window.PICO_API_BASES[0] ?? null;
 
     function app(name, description, pages, hardware, information = info(false, "")) {
       return { name, description, pages, hardware, info: information };
