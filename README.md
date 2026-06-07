@@ -96,6 +96,7 @@ If the selector UF2 is missing, the backend tries to build it automatically from
 11. Spectral Smash: a spectral effect that captures a short-time spectrum and keeps warping, blurring, smearing, and remixing the frozen frame into torn evolving textures;
 12. BeatBreaker: a clock-sliced beat breaker that captures recent beat buffers and, on each beat, can probabilistically replay, reverse, and retrigger them in 2x to 8x subdivisions;
 13. Tremolo: a tremolo effect with adjustable depth, rate, wet/dry mix, and output level control, with CV input for tremolo rate;
+14. Clouds: a texture synthesizer inspired by "Mutable Instruments Clouds" that combines granular processing, spectral effects, and reverb into evolving soundscapes;
 
 ## Test
 1. Button: a simple hardware test that cycles the front-panel RGB LED color each time the button is pressed;

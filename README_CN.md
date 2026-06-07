@@ -96,6 +96,7 @@ python3 Client/server.py
 11. Spectral Smash: 一个频谱撕裂效果器，可抓取当前短窗频谱并继续做 warp、blur、time smear 与干湿比控制，适合冻结后撕裂、拉伸和漂移纹理；
 12. BeatBreaker: 一个按外部时钟切片并重组输入音频的 beat slicer，可按概率从最近几拍中抽取片段、倒放，并在单拍内做 2 到 8 次重复触发；
 13. Tremolo: 一个颤音效果器，具有可调节的颤音深度、颤音速率、干湿比和输出电平控制，支持颤音速率的cv in；
+14. Clouds: 一个受 "Mutable Instruments Clouds" 启发的纹理合成器，将颗粒处理、频谱效果和混响结合成不断演变的音景；
 
 ## Test
 1. Button: 一个简单的硬件测试程序，每次按下按钮都会切换前面板 RGB LED 的颜色；
