@@ -30,7 +30,7 @@
 #define SRAM_END_ADDR 0x20082000u
 #define HOLD_SELECT_MS 700u
 #define HOLD_CONFIRM_MS 900u
-#define HOLD_CALIBRATE_MS 3000u
+#define HOLD_CALIBRATE_MS 20000u
 #define BOOT_GRACE_MS 600u
 
 typedef void (*AppEntry)(void);
