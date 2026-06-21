@@ -32,6 +32,7 @@ CLIENT_DIR = ROOT / "Client"
 BOOT_TOOL = ROOT / "Bootloader" / "Tools" / "pico_boot_apps.py"
 SELECTOR_UF2_ENV = "PICO_SELECTOR_UF2"
 SELECTOR_UF2_CANDIDATES = [
+    ROOT / "Bootloader" / "build" / "selector" / "Pico_Firmware.uf2",
     ROOT / "Bootloader" / "build" / "Pico_Firmware.uf2",
     ROOT / "Bootloader" / "build" / "pico_selector.uf2",
 ]
@@ -90,7 +91,10 @@ def selector_candidates() -> list[Path]:
 
 
 def build_selector_uf2(job: "BuildJob | None" = None) -> None:
-    build_dir = ROOT / "Bootloader" / "build"
+    # Keep the selector in its own CMake tree. Older repository builds may
+    # have cached a Homebrew arm-none-eabi compiler without libstdc++ headers;
+    # a separate tree also prevents that stale cache from poisoning Web builds.
+    build_dir = ROOT / "Bootloader" / "build" / "selector"
     if shutil.which("cmake") is None:
         raise RuntimeError("missing selector UF2 and cmake is not available to build it")
     pico_sdk_path = os.environ.get("PICO_SDK_PATH")
@@ -98,6 +102,15 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
         local_sdk = Path.home() / "Library" / "Arduino15" / "packages" / "rp2040" / "hardware" / "rp2040" / "5.5.0" / "pico-sdk"
         if (local_sdk / "external" / "pico_sdk_import.cmake").exists():
             pico_sdk_path = str(local_sdk)
+
+    toolchain_path = os.environ.get("PICO_TOOLCHAIN_PATH")
+    if not toolchain_path:
+        toolchain_root = Path.home() / "Library" / "Arduino15" / "packages" / "rp2040" / "tools" / "pqt-gcc"
+        candidates = sorted(toolchain_root.glob("*/bin"), reverse=True)
+        for candidate in candidates:
+            if (candidate / "arm-none-eabi-g++").exists():
+                toolchain_path = str(candidate)
+                break
 
     if not (build_dir / "build.ninja").exists() and not (build_dir / "Makefile").exists():
         if job:
@@ -112,6 +125,8 @@ def build_selector_uf2(job: "BuildJob | None" = None) -> None:
         ]
         if pico_sdk_path:
             configure_cmd.append(f"-DPICO_SDK_PATH={pico_sdk_path}")
+        if toolchain_path:
+            configure_cmd.append(f"-DPICO_TOOLCHAIN_PATH={toolchain_path}")
         if shutil.which("ninja"):
             configure_cmd.extend(["-G", "Ninja"])
         run_command(configure_cmd, job)
@@ -585,6 +600,17 @@ def sample_default_path(app_id: str) -> Path:
     return SAMPLE_DEFAULT_ROOT / app_id
 
 
+def sample_tree_usable(app_id: str, path: Path) -> bool:
+    """Reject empty or partial snapshots before they can replace source data."""
+    if not path.exists() or not any(path.rglob("*.wav")):
+        return False
+    if app_id == "GridsSampler":
+        return (path / "samples.h").exists() or (path / "Samples.h").exists()
+    if app_id == "OneshotSampler":
+        return (path / "banks.h").exists() and (path / "exec").exists()
+    return False
+
+
 def sample_tree_signature(path: Path) -> list[tuple[str, int]]:
     if not path.exists():
         return []
@@ -601,10 +627,14 @@ def ensure_sample_defaults() -> None:
     for app_id, source in SAMPLE_APPS.items():
         snapshot = sample_default_path(app_id)
         if snapshot.exists():
-            if sample_tree_signature(source) != sample_tree_signature(snapshot):
+            if not sample_tree_usable(app_id, snapshot):
+                shutil.rmtree(snapshot)
+            elif sample_tree_signature(source) != sample_tree_signature(snapshot):
                 restore_sample_default(app_id)
-            continue
-        if not source.exists():
+                continue
+            else:
+                continue
+        if not sample_tree_usable(app_id, source):
             continue
         shutil.copytree(source, snapshot, ignore=sample_copy_ignore)
 
@@ -612,7 +642,7 @@ def ensure_sample_defaults() -> None:
 def restore_sample_default(app_id: str) -> bool:
     source = SAMPLE_APPS.get(app_id)
     snapshot = sample_default_path(app_id)
-    if not source or not snapshot.exists():
+    if not source or not sample_tree_usable(app_id, snapshot):
         return False
     if source.exists():
         shutil.rmtree(source)

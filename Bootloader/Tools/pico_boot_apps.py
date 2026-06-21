@@ -30,14 +30,18 @@ PICO_SELECTOR_BOOT_BYTES = 256 * 1024
 PICO_SELECTOR_CONFIG_A_OFFSET = PICO_SELECTOR_BOOT_BYTES - (2 * 4096)
 PICO_SELECTOR_CONFIG_B_OFFSET = PICO_SELECTOR_BOOT_BYTES - 4096
 PICO_SELECTOR_FIRST_APP_OFFSET = PICO_SELECTOR_BOOT_BYTES
+FLASH_SECTOR_SIZE = 4096
 PICO_SELECTOR_DEFAULT_SLOT_BYTES = 512 * 1024
 PICO_SELECTOR_DEFAULT_APP_REGION_BYTES = 3584 * 1024
+PICO_SELECTOR_STATE_OFFSET = (
+    PICO_SELECTOR_FIRST_APP_OFFSET + PICO_SELECTOR_DEFAULT_APP_REGION_BYTES
+)
+PICO_SELECTOR_STATE_SLOT_BYTES = FLASH_SECTOR_SIZE
 PICO_SELECTOR_ARDUINO_VECTOR_OFFSET = 0x3000
 PICO_SELECTOR_FLAG_VALID = 0x01
 PICO_SELECTOR_FLAG_RP2040 = 0x02
 PICO_SELECTOR_FLAG_RP2350 = 0x04
 PICO_SELECTOR_FLAG_PICOFX = 0x08
-FLASH_SECTOR_SIZE = 4096
 UF2_PAYLOAD_SIZE = 256
 CONFIG_RECORD_SIZE = 216
 DEFAULT_CPU_HZ = 250_000_000
@@ -312,6 +316,13 @@ def sector_blocks(flash_offset: int, record: bytes, flags: int, family: int) -> 
 
 
 def build_slot(args: argparse.Namespace) -> None:
+    if not 0 <= args.slot < PICO_SELECTOR_MAX_APPS:
+        raise ValueError(f"slot {args.slot} is out of range")
+    if args.eeprom_slot_size != FLASH_SECTOR_SIZE:
+        raise ValueError("Arduino EEPROM requires one 4096-byte erase sector per slot")
+    if args.eeprom_base_offset % FLASH_SECTOR_SIZE:
+        raise ValueError("EEPROM base offset must be flash-sector aligned")
+
     script = Path(__file__).with_name("make_slot_memmap.py").resolve()
     slot_offset = (
         args.slot_offset
@@ -319,13 +330,23 @@ def build_slot(args: argparse.Namespace) -> None:
         else args.first_app_offset + (args.slot * args.slot_size)
     )
     flash_origin = XIP_BASE + slot_offset
+    flash_end = slot_offset + args.slot_size
+    eeprom_offset = args.eeprom_base_offset + (args.slot * args.eeprom_slot_size)
+    if flash_end > args.eeprom_base_offset:
+        raise ValueError(
+            f"slot firmware ends at 0x{flash_end:x}, overlapping EEPROM state area "
+            f"at 0x{args.eeprom_base_offset:x}"
+        )
+    if eeprom_offset < flash_end:
+        raise ValueError("slot EEPROM overlaps its application firmware")
+    eeprom_start = XIP_BASE + eeprom_offset
     recipe = (
         f'"{sys.executable}" -I "{script}" '
         f'--input "{{runtime.platform.path}}/lib/{{build.chip}}/memmap_default.ld" '
         f'--out "{{build.path}}/memmap_default.ld" '
         f"--flash-origin 0x{flash_origin:08x} "
         f"--flash-length {args.slot_size} "
-        f'--eeprom-start "{{build.eeprom_start}}" '
+        f"--eeprom-start 0x{eeprom_start:08x} "
         f'--fs-start "{{build.fs_start}}" '
         f'--fs-end "{{build.fs_end}}" '
         f'--ram-length "{{build.ram_length}}" '
@@ -498,6 +519,18 @@ def main() -> None:
     slot.add_argument("--slot-size", type=int_arg, default=PICO_SELECTOR_DEFAULT_SLOT_BYTES)
     slot.add_argument("--slot-offset", type=int_arg)
     slot.add_argument("--first-app-offset", type=int_arg, default=PICO_SELECTOR_FIRST_APP_OFFSET)
+    slot.add_argument(
+        "--eeprom-base-offset",
+        type=int_arg,
+        default=PICO_SELECTOR_STATE_OFFSET,
+        help="flash offset of the fixed per-slot EEPROM state area",
+    )
+    slot.add_argument(
+        "--eeprom-slot-size",
+        type=int_arg,
+        default=PICO_SELECTOR_STATE_SLOT_BYTES,
+        help="bytes reserved for each logical slot's EEPROM",
+    )
     slot.add_argument("--fqbn", default=DEFAULT_FQBN)
     slot.add_argument("--build-path", type=Path, required=True)
     slot.add_argument("--library", action="append", default=[])
