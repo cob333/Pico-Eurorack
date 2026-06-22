@@ -131,6 +131,17 @@ static constexpr uint32_t STATE_KEY=0x474f4f4du;
 struct SavedState{int32_t waveform,lfoWaveform;float minfreq[OSCSPERVOICE],filterfreq,envelopefiltermod,filterresonance,lfofreq,lfofiltermod,attack,decay,sustain,release;};
 PicoStateStore stateStore;
 static SavedState captureState(){SavedState s={waveform,lfoWaveform,{minfreq[0],minfreq[1],minfreq[2]},filterfreq,envelopefiltermod,filterresonance,lfofreq,lfofiltermod,adsrAttack,adsrDecay,adsrSustain,adsrRelease};return s;}
+static constexpr uint32_t MANUAL_SAVE_HOLD_MS=3000;
+uint32_t save_buttonpress=0;
+bool save_hold_handled=0;
+
+static void blinkSaveResult(bool saved){
+  uint32_t color=saved?GREEN:RED;
+  for(uint8_t i=0;i<3;++i){
+    LEDS.setPixelColor(0,color);LEDS.show();delay(120);
+    LEDS.setPixelColor(0,0);LEDS.show();delay(120);
+  }
+}
 
 // create daisySP processing objects
 Oscillator osc[VOICES * OSCSPERVOICE];
@@ -221,6 +232,8 @@ void loop() {
   if (!digitalRead(BUTTON1)) {
     if (((millis()-buttontimer) > DEBOUNCE) && !button) {  // if button pressed advance to next parameter set
       button=1;  
+      save_buttonpress=millis();
+      save_hold_handled=0;
       ++UIstate;
       if (UIstate >= NUMUISTATES) UIstate=OSCS;
       lockpots();
@@ -229,6 +242,13 @@ void loop() {
   else {
     buttontimer=millis();
     button=0;
+    save_hold_handled=0;
+  }
+
+  if(button&&!save_hold_handled&&((millis()-save_buttonpress)>=MANUAL_SAVE_HOLD_MS)){
+    save_hold_handled=1;
+    SavedState saved=captureState();
+    blinkSaveResult(stateStore.save(&saved,sizeof(saved)));
   }
 
   if ((millis() -parameterupdate) > PARAMETERUPDATE) {  // don't update the parameters too often -sometimes it messes up the daisySP models
