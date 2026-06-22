@@ -66,9 +66,9 @@
 #include "stdio.h"
 #include "pico/stdlib.h"
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
-#include <EEPROM.h>
 #include <math.h>
 #include <STMLIB.h>
 #include <6opfm.h>
@@ -110,6 +110,10 @@ ClickButton button1 (BUTTON1);
 enum UIstates {SET1,SET2} ;
 uint8_t UIstate=SET1;
 bool uiHoldActive=false;
+static constexpr uint32_t MANUAL_SAVE_HOLD_MS = 3000;
+uint32_t saveHoldStart = 0;
+bool saveHoldTracking = false;
+bool saveHoldHandled = false;
 
 #define NUM_BANKS 1
 uint8_t engine=0;
@@ -120,15 +124,11 @@ int16_t outputmix=OUTPUTMAX; // mix of normal and aux output
 float trigger_in = 0.0f;
 
 #define CVIN_VOLT 582.52  // a/d count per volt - **** adjust this value to calibrate V/octave input
-#define EEPROM_BYTES 256
 #define PLAITSFM_STORE_MAGIC 0x32464d50u // "2FMP"
 #define PLAITSFM_STORE_VERSION 2u
-#define SAVE_DEBOUNCE_MS 2000
 #define STATE_QUANT_STEPS 1023u
 
-bool stateDirty=false;
-uint32_t stateLastChange=0;
-uint32_t stateShadowHash=0;
+PicoStateStore stateStore;
 
 plaits::Modulations modulations;
 plaits::Patch patch;
@@ -238,7 +238,7 @@ static bool validateStore(const PlaitsFMStore &data) {
 
 static bool loadStateFromFlash() {
   PlaitsFMStore data;
-  EEPROM.get(0, data);
+  if (!stateStore.load(&data, sizeof(data))) return 0;
   if (!validateStore(data)) return 0;
 
   engine = data.engine;
@@ -258,33 +258,19 @@ static bool saveStateToFlash() {
   PlaitsFMStore data;
   copyStateToStore(data);
   data.checksum = plaitsFmChecksum(data);
-  EEPROM.put(0, data);
-  return EEPROM.commit();
+  return stateStore.save(&data, sizeof(data));
 }
 
-static uint32_t currentStateHash() {
-  PlaitsFMStore data;
-  copyStateToStore(data);
-  data.checksum = 0;
-  return plaitsFmChecksum(data);
+static void blinkSaveResult(bool saved) {
+  uint32_t color=saved?GREEN:RED;
+  for(uint8_t i=0;i<3;++i){LEDS.setPixelColor(0,color);LEDS.show();delay(120);LEDS.setPixelColor(0,0);LEDS.show();delay(120);}
 }
 
-static void serviceStateSave() {
-  uint32_t currentHash = currentStateHash();
-  if (currentHash != stateShadowHash) {
-    stateShadowHash = currentHash;
-    stateLastChange = millis();
-    stateDirty = true;
-  }
-
-  if (stateDirty && (millis() - stateLastChange >= SAVE_DEBOUNCE_MS)) {
-    if (saveStateToFlash()) {
-      stateDirty = false;
-    }
-    else {
-      stateLastChange = millis();
-    }
-  }
+static void serviceManualSave() {
+  const bool pressed=!digitalRead(BUTTON1);const uint32_t now=millis();
+  if(!pressed){saveHoldTracking=false;saveHoldHandled=false;return;}
+  if(!saveHoldTracking){saveHoldTracking=true;saveHoldStart=now;}
+  if(!saveHoldHandled&&(now-saveHoldStart)>=MANUAL_SAVE_HOLD_MS){saveHoldHandled=true;blinkSaveResult(saveStateToFlash());}
 }
 
 // initialize Plaits voice parameters
@@ -362,7 +348,7 @@ void setup() {
 
   initPlaits();
 
-  EEPROM.begin(EEPROM_BYTES);
+  stateStore.begin(PLAITSFM_STORE_MAGIC, PLAITSFM_STORE_VERSION);
   bool loaded=loadStateFromFlash();
   if (loaded) {
     lockpots(); // keep restored state active until a pot is moved
@@ -370,9 +356,6 @@ void setup() {
   else {
     updateEngineUi();
   }
-
-  stateShadowHash=currentStateHash();
-  stateDirty=false;
 
 // set up Pico I2S for PT8211 stereo DAC
 	DAC.setBCLK(BCLK);
@@ -418,6 +401,7 @@ void loop() {
     default:
       break;
   }
+  serviceManualSave();
 
 // set pitch from CV input
   float pitch=(float)(AD_RANGE-sampleCV2())/(float)CVIN_VOLT; // CV in is inverted
@@ -445,8 +429,6 @@ void loop() {
 
   trigger_in=(float)!digitalRead(TRIGGER);
   voices[0].modulations.trigger = trigger_in;
-
-  serviceStateSave();
 
   if ((millis()-LEDtimer) > LEDBLINK) {
     ++LED_index;

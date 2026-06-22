@@ -36,7 +36,7 @@ PICO_SELECTOR_DEFAULT_APP_REGION_BYTES = 3584 * 1024
 PICO_SELECTOR_STATE_OFFSET = (
     PICO_SELECTOR_FIRST_APP_OFFSET + PICO_SELECTOR_DEFAULT_APP_REGION_BYTES
 )
-PICO_SELECTOR_STATE_SLOT_BYTES = FLASH_SECTOR_SIZE
+PICO_SELECTOR_STATE_SLOT_BYTES = 2 * FLASH_SECTOR_SIZE
 PICO_SELECTOR_ARDUINO_VECTOR_OFFSET = 0x3000
 PICO_SELECTOR_FLAG_VALID = 0x01
 PICO_SELECTOR_FLAG_RP2040 = 0x02
@@ -318,8 +318,8 @@ def sector_blocks(flash_offset: int, record: bytes, flags: int, family: int) -> 
 def build_slot(args: argparse.Namespace) -> None:
     if not 0 <= args.slot < PICO_SELECTOR_MAX_APPS:
         raise ValueError(f"slot {args.slot} is out of range")
-    if args.eeprom_slot_size != FLASH_SECTOR_SIZE:
-        raise ValueError("Arduino EEPROM requires one 4096-byte erase sector per slot")
+    if args.eeprom_slot_size != PICO_SELECTOR_STATE_SLOT_BYTES:
+        raise ValueError("each app slot requires two 4096-byte state sectors")
     if args.eeprom_base_offset % FLASH_SECTOR_SIZE:
         raise ValueError("EEPROM base offset must be flash-sector aligned")
 

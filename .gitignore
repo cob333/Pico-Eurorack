@@ -12,3 +12,5 @@ Reference
 Sketches/PicoFX/Space
 deploy_instruction.md
 Bootloader/build
+Client/manifest.json
+Client/sample-defaults.json

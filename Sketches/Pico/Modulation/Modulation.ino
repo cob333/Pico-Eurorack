@@ -47,6 +47,7 @@
 //   LED color follows the selected waveform
 
 #include <2HPico.h>
+#include <PicoStateStore.h>
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include "pico/multicore.h"
@@ -97,6 +98,11 @@ volatile int16_t lfoLedSample = 0;
 bool button = 0;
 bool sync = 0;
 uint32_t buttontimer, gatetimer, synctimer, parameterupdate;
+float adsrAttack=0.01f,adsrDecay=0.2f,adsrSustain=0.7f,adsrRelease=0.3f;
+static constexpr uint32_t STATE_KEY=0x55444f4du;
+struct SavedState{uint8_t mode,wave;uint16_t amplitude;int32_t rate1,rate2;float attack,decay,sustain,release;};
+PicoStateStore stateStore;
+static SavedState captureState(){return {(uint8_t)currentMode,lfo[0].wave,lfo[0].amplitude,lfo[0].rate1,lfo[0].rate2,adsrAttack,adsrDecay,adsrSustain,adsrRelease};}
 
 static inline uint32_t scaleColorByLevel(uint32_t color, uint8_t level) {
   uint8_t r = (color >> 16) & 0x1f;
@@ -119,10 +125,10 @@ static void resetLfoPhase() {
 }
 
 static void setDefaultParameters() {
-  env.SetTime(ADSR_SEG_ATTACK, 0.01f);
-  env.SetTime(ADSR_SEG_DECAY, 0.2f);
-  env.SetSustainLevel(0.7f);
-  env.SetTime(ADSR_SEG_RELEASE, 0.3f);
+  env.SetTime(ADSR_SEG_ATTACK, adsrAttack);
+  env.SetTime(ADSR_SEG_DECAY, adsrDecay);
+  env.SetSustainLevel(adsrSustain);
+  env.SetTime(ADSR_SEG_RELEASE, adsrRelease);
 
   lfo[0].wave = SINE;
   lfo[0].rate1 = 4000;
@@ -136,10 +142,10 @@ static void setDefaultParameters() {
 
 static void applyCurrentParameters() {
   if (currentMode == MODE_ADSR) {
-    if (!potlock[0]) env.SetTime(ADSR_SEG_ATTACK, mapf(pot[0], 0, AD_RANGE - 1, 0, 2));
-    if (!potlock[1]) env.SetTime(ADSR_SEG_DECAY, mapf(pot[1], 0, AD_RANGE - 1, 0, 2));
-    if (!potlock[2]) env.SetSustainLevel(mapf(pot[2], 0, AD_RANGE - 1, 0, 1));
-    if (!potlock[3]) env.SetTime(ADSR_SEG_RELEASE, mapf(pot[3], 0, AD_RANGE - 1, 0, 2));
+    if (!potlock[0]) {adsrAttack=mapf(pot[0],0,AD_RANGE-1,0,2);env.SetTime(ADSR_SEG_ATTACK,adsrAttack);}
+    if (!potlock[1]) {adsrDecay=mapf(pot[1],0,AD_RANGE-1,0,2);env.SetTime(ADSR_SEG_DECAY,adsrDecay);}
+    if (!potlock[2]) {adsrSustain=mapf(pot[2],0,AD_RANGE-1,0,1);env.SetSustainLevel(adsrSustain);}
+    if (!potlock[3]) {adsrRelease=mapf(pot[3],0,AD_RANGE-1,0,2);env.SetTime(ADSR_SEG_RELEASE,adsrRelease);}
     return;
   }
 
@@ -318,6 +324,8 @@ void setup() {
   env.Init(samplerate);
   analogReadResolution(AD_BITS);
   setDefaultParameters();
+  stateStore.begin(STATE_KEY,1);SavedState saved;
+  if(stateStore.load(&saved,sizeof(saved))&&saved.mode<=MODE_LFO&&saved.wave<NWAVES&&saved.amplitude<=MAX_AMPLITUDE&&saved.rate1>=MIN_DELTA&&saved.rate2>=MIN_DELTA&&isfinite(saved.attack)&&saved.attack>=0&&saved.attack<=2&&isfinite(saved.decay)&&saved.decay>=0&&saved.decay<=2&&isfinite(saved.sustain)&&saved.sustain>=0&&saved.sustain<=1&&isfinite(saved.release)&&saved.release>=0&&saved.release<=2){currentMode=saved.mode;lfo[0].wave=saved.wave;lfo[0].amplitude=saved.amplitude;lfo[0].rate1=saved.rate1;lfo[0].rate2=saved.rate2;adsrAttack=saved.attack;adsrDecay=saved.decay;adsrSustain=saved.sustain;adsrRelease=saved.release;env.SetTime(ADSR_SEG_ATTACK,adsrAttack);env.SetTime(ADSR_SEG_DECAY,adsrDecay);env.SetSustainLevel(adsrSustain);env.SetTime(ADSR_SEG_RELEASE,adsrRelease);lockpots();}
   samplepots();
   applyCurrentParameters();
   buttontimer = millis();

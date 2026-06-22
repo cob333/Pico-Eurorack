@@ -49,6 +49,7 @@
 
 
 #include "2HPico.h"
+#include "PicoStateStore.h"
 //#include "io.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
@@ -126,8 +127,22 @@ bool button=0;  // keeps track of button state
 enum UIstates {SET1,SET2} ;
 uint8_t UIstate=SET1;
 uint32_t buttontimer,clocktimer,clockperiod,clockdebouncetimer,ledtimer, gatetimer, gatelength;
+uint32_t save_buttonpress=0;
+bool save_hold_handled=0;
+#define MANUAL_SAVE_HOLD_MS 3000
 
 #define LEDOFF 100 // LED trigger flash time 
+
+static constexpr uint32_t STATE_KEY = 0x554a4544u;
+struct SavedState { int8_t notes[MAX_STEPS], savednotes[MAX_STEPS]; uint8_t gates[MAX_STEPS], savedgates[MAX_STEPS]; int16_t cvoffset, scale; int8_t noterange, noteprob, gateprob, clockdivideby, restorecount; };
+PicoStateStore stateStore;
+static SavedState captureState() {
+  SavedState s = {}; memcpy(s.notes,notes,sizeof(notes)); memcpy(s.savednotes,savednotes,sizeof(savednotes));
+  for(uint8_t i=0;i<MAX_STEPS;++i){s.gates[i]=gates[i];s.savedgates[i]=savedgates[i];}
+  s.cvoffset=cvoffset;s.scale=scale;s.noterange=noterange;s.noteprob=noteprob;s.gateprob=gateprob;s.clockdivideby=clockdivideby;s.restorecount=restorecount;return s;
+}
+
+static void blinkSaveResult(bool saved){uint32_t color=saved?GREEN:RED;for(uint8_t i=0;i<3;++i){LEDS.setPixelColor(0,color);LEDS.show();delay(120);LEDS.setPixelColor(0,0);LEDS.show();delay(120);}}
 
 
 
@@ -182,6 +197,14 @@ void setup() {
     potlock[i]=0;
   }
 
+  savesequence();
+  stateStore.begin(STATE_KEY, 1);
+  SavedState saved;
+  if (stateStore.load(&saved,sizeof(saved)) && saved.scale>=0 && saved.scale<5 && saved.noterange>=0 && saved.noterange<=NOTERANGE && saved.noteprob>=0 && saved.noteprob<=100 && saved.gateprob>=0 && saved.gateprob<=100 && saved.clockdivideby>=1 && saved.clockdivideby<=16 && saved.restorecount>=0 && saved.restorecount<=8) {
+    memcpy(notes,saved.notes,sizeof(notes));memcpy(savednotes,saved.savednotes,sizeof(savednotes));for(uint8_t i=0;i<MAX_STEPS;++i){gates[i]=saved.gates[i]!=0;savedgates[i]=saved.savedgates[i]!=0;}
+    cvoffset=saved.cvoffset;scale=saved.scale;noterange=saved.noterange;noteprob=saved.noteprob;gateprob=saved.gateprob;clockdivideby=saved.clockdivideby;restorecount=saved.restorecount;lockpots();
+  }
+
 
   // Enable the AudioShield
 // set up Pico I2S for PT8211 stereo DAC
@@ -205,6 +228,8 @@ void loop() {
   if (!digitalRead(BUTTON1)) {
     if (((millis()-buttontimer) > DEBOUNCE) && !button) {  // if button pressed advance to next parameter set
       button=1;  
+      save_buttonpress=millis();
+      save_hold_handled=0;
       ++UIstate;
       if (UIstate >= NUMUISTATES) UIstate=SET1;
       lockpots();
@@ -214,7 +239,10 @@ void loop() {
   else {
     buttontimer=millis();
     button=0;
+    save_hold_handled=0;
   }
+
+  if(button&&!save_hold_handled&&((millis()-save_buttonpress)>=MANUAL_SAVE_HOLD_MS)){save_hold_handled=1;SavedState saved=captureState();blinkSaveResult(stateStore.save(&saved,sizeof(saved)));}
 
   samplepots();
 
@@ -323,8 +351,5 @@ void loop1(){
   digitalWrite(CPU_USE,1); // hi = CPU busy
 #endif
 }
-
-
-
 
 

@@ -45,6 +45,7 @@
 // LED Green blink: playback
 
 #include <2HPico.h>
+#include <PicoStateStore.h>
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include "pico/multicore.h"
@@ -102,6 +103,11 @@ uint32_t led_restore = RED;
 uint16_t last_record_pot1 = 0;
 uint16_t last_record_pot2 = 0;
 bool record_pots_inited = 0;
+
+static constexpr uint32_t STATE_KEY = 0x49544f4du;
+struct SavedState { int16_t motion1[MAX_STEPS], motion2[MAX_STEPS], manual1, manual2; int8_t laststep; uint8_t reserved; uint16_t smoothcoef; };
+PicoStateStore stateStore;
+static SavedState captureState(){SavedState s={};memcpy(s.motion1,motion1,sizeof(motion1));memcpy(s.motion2,motion2,sizeof(motion2));s.manual1=manual1;s.manual2=manual2;s.laststep=laststep;s.smoothcoef=smoothcoef;return s;}
 
 int16_t clampCv(int32_t value) {
   if (value > CVOUT_LIMIT) return CVOUT_LIMIT;
@@ -163,6 +169,9 @@ void setup() {
     motion1[i] = 0;
     motion2[i] = 0;
   }
+
+  stateStore.begin(STATE_KEY,1); SavedState saved;
+  if(stateStore.load(&saved,sizeof(saved)) && saved.laststep>=0 && saved.laststep<MAX_STEPS){memcpy(motion1,saved.motion1,sizeof(motion1));memcpy(motion2,saved.motion2,sizeof(motion2));manual1=saved.manual1;manual2=saved.manual2;laststep=saved.laststep;smoothcoef=saved.smoothcoef;state=READY;target1=motion1[0];target2=motion2[0];lockpots();}
 
 // set up Pico I2S for PT8211 stereo DAC
 	DAC.setBCLK(BCLK);

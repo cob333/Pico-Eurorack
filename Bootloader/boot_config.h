@@ -23,10 +23,11 @@
 
 // The client packs applications into a 3.5 MiB region. Keep persistent app
 // state outside that region so rebuilding or resizing an app cannot move its
-// EEPROM. Each logical selector slot owns one erase sector.
+// EEPROM. Each logical selector slot owns two erase sectors for journal
+// rollover and power-loss recovery.
 #define PICO_BOOT_APP_REGION_BYTES (3584u * 1024u)
 #define PICO_BOOT_STATE_OFFSET (PICO_BOOT_FIRST_APP_OFFSET + PICO_BOOT_APP_REGION_BYTES)
-#define PICO_BOOT_STATE_SLOT_BYTES 4096u
+#define PICO_BOOT_STATE_SLOT_BYTES (2u * 4096u)
 
 #define PICO_BOOT_DEFAULT_SLOT_BYTES (512u * 1024u)
 #define PICO_BOOT_ARDUINO_VECTOR_OFFSET 0x3000u

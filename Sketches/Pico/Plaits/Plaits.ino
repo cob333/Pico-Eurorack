@@ -62,6 +62,7 @@
 #include "stdio.h"
 #include "pico/stdlib.h"
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include <math.h>
@@ -105,6 +106,10 @@ ClickButton button1 (BUTTON1);
 enum UIstates {SET1,SET2} ;
 uint8_t UIstate=SET1;
 bool uiHoldActive=false;
+static constexpr uint32_t MANUAL_SAVE_HOLD_MS = 3000;
+uint32_t saveHoldStart = 0;
+bool saveHoldTracking = false;
+bool saveHoldHandled = false;
 
 #define NUM_BANKS 3
 uint8_t engine=0;
@@ -112,6 +117,9 @@ uint8_t bank=0;
 float octave=-1.0;
 #define OUTPUTMAX 32000  // output gain reduction - its a bit hot on the 6opFM models
 int16_t outputmix=OUTPUTMAX; // mix of normal and aux output
+static constexpr uint32_t STATE_KEY=0x54414c50u;
+struct SavedState{uint8_t engine,bank;uint16_t reserved;float octave,note,harmonics,timbre,morph,lpg,decay;int16_t outputmix;uint16_t pad;};
+PicoStateStore stateStore;
 
 float trigger_in = 0.0f;
 
@@ -134,6 +142,24 @@ struct Unit {
 };
 
 struct Unit voices[1];
+static SavedState captureState(){return {engine,bank,0,octave,voices[0].patch.note,voices[0].patch.harmonics,voices[0].patch.timbre,voices[0].patch.morph,voices[0].patch.lpg_colour,voices[0].patch.decay,outputmix,0};}
+
+static void blinkSaveResult(bool saved) {
+  uint32_t color = saved ? GREEN : RED;
+  for (uint8_t i=0;i<3;++i){LEDS.setPixelColor(0,color);LEDS.show();delay(120);LEDS.setPixelColor(0,0);LEDS.show();delay(120);}
+}
+
+static void serviceManualSave() {
+  const bool pressed = !digitalRead(BUTTON1);
+  const uint32_t now = millis();
+  if (!pressed) { saveHoldTracking=false; saveHoldHandled=false; return; }
+  if (!saveHoldTracking) { saveHoldTracking=true; saveHoldStart=now; }
+  if (!saveHoldHandled && (now-saveHoldStart)>=MANUAL_SAVE_HOLD_MS) {
+    saveHoldHandled=true;
+    SavedState saved=captureState();
+    blinkSaveResult(stateStore.save(&saved,sizeof(saved)));
+  }
+}
 
 static void updateEngineUi() {
   voices[0].patch.engine=engine + bank*8;
@@ -213,6 +239,10 @@ void setup() {
   }
 
   initPlaits();
+  samplepots();
+  stateStore.begin(STATE_KEY,1);SavedState saved;
+  bool loaded=stateStore.load(&saved,sizeof(saved));
+  if(loaded&&saved.engine<8&&saved.bank<NUM_BANKS&&isfinite(saved.octave)&&saved.octave>=-3&&saved.octave<=4&&isfinite(saved.note)&&saved.note>=-12&&saved.note<=12){engine=saved.engine;bank=saved.bank;octave=saved.octave;voices[0].patch.note=saved.note;voices[0].patch.harmonics=constrain(saved.harmonics,0.0f,1.0f);voices[0].patch.timbre=constrain(saved.timbre,0.0f,1.0f);voices[0].patch.morph=constrain(saved.morph,0.0f,1.0f);voices[0].patch.lpg_colour=constrain(saved.lpg,0.0f,1.0f);voices[0].patch.decay=constrain(saved.decay,0.0f,1.0f);outputmix=constrain(saved.outputmix,0,OUTPUTMAX);lockpots();}
   updateEngineUi();
 
 // set up Pico I2S for PT8211 stereo DAC
@@ -262,6 +292,7 @@ void loop() {
     default:
       break;
   }
+  serviceManualSave();
 
 // set pitch from CV input
   float pitch=(float)(AD_RANGE-sampleCV2())/(float)CVIN_VOLT; // CV in is inverted

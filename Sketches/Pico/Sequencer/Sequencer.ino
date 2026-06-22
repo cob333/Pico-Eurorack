@@ -66,9 +66,9 @@
 
 //#include "MIDI.h"
 #include <2HPico.h>
+#include <PicoStateStore.h>
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
-#include <EEPROM.h>
 //#include "RPi_Pico_TimerInterrupt.h"
 #include <math.h>
 #include <string.h>
@@ -118,6 +118,7 @@ bool button=0;  // keeps track of button state
 bool ratchet_active=0;
 bool ratchet_editing=0;
 bool ratchet_mode_prev=0;
+bool save_hold_handled=0;
 uint8_t ratchet_count=1;
 uint8_t ratchet_index=0;
 uint32_t ratchet_interval=0;
@@ -133,15 +134,12 @@ uint32_t buttontimer,buttonpress,clocktimer,clockperiod,clockdebouncetimer,ledti
 #define LEDOFF 100 // LED trigger flash time 
 #define CLOCK_RESET_MS 1000  // reset to step 1 after 1s without clock
 #define LONG_PRESS_MS 500  // hold time to enter ratchet edit mode
+#define MANUAL_SAVE_HOLD_MS 3000
 #define RATCHET_POT_THRESHOLD 150  // pot delta required to accept ratchet change
-#define EEPROM_BYTES 256
 #define SEQ_STORE_MAGIC 0x32535051u // "2SPQ"
 #define SEQ_STORE_VERSION 1u
-#define SAVE_DEBOUNCE_MS 5000 // minimum time between flash saves
 
-bool sequenceDirty=0;
-uint32_t sequenceLastChange=0;
-uint32_t sequenceShadowHash=0;
+PicoStateStore stateStore;
 
 struct SequencerStore {
   uint32_t magic;
@@ -200,7 +198,7 @@ static bool validateStore(const SequencerStore &data) {
 
 static bool loadSequenceFromFlash() {
   SequencerStore data;
-  EEPROM.get(0, data);
+  if (!stateStore.load(&data, sizeof(data))) return 0;
   if (!validateStore(data)) return 0;
 
   for (int i=0; i<MAX_STEPS; ++i) {
@@ -219,15 +217,12 @@ static bool saveSequenceToFlash() {
   SequencerStore data;
   copyStateToStore(data);
   data.checksum=sequencerChecksum(data);
-  EEPROM.put(0, data);
-  return EEPROM.commit();
+  return stateStore.save(&data, sizeof(data));
 }
 
-static uint32_t currentSequenceHash() {
-  SequencerStore data;
-  copyStateToStore(data);
-  data.checksum=0;
-  return sequencerChecksum(data);
+static void blinkSaveResult(bool saved) {
+  uint32_t color=saved?GREEN:RED;
+  for(uint8_t i=0;i<3;++i){LEDS.setPixelColor(0,color);LEDS.show();delay(120);LEDS.setPixelColor(0,0);LEDS.show();delay(120);}
 }
 
 
@@ -259,7 +254,7 @@ void setup() {
   // Without this, loaded sequence data can be overwritten on first loop.
   samplepots();
 
-  EEPROM.begin(EEPROM_BYTES);
+  stateStore.begin(SEQ_STORE_MAGIC, SEQ_STORE_VERSION);
   bool loaded=loadSequenceFromFlash();
 #ifdef DEBUG
   if (loaded) Serial.println("loaded sequencer data from flash");
@@ -282,8 +277,6 @@ void setup() {
   clocktimer=millis(); // initial clock measurement
   clockperiod=CLOCK_RESET_MS;
   clockForceFirstStep=1;
-  sequenceShadowHash=currentSequenceHash();
-  sequenceDirty=0;
   lockpots(); // keep loaded sequence until pots move significantly
 }
 
@@ -296,6 +289,7 @@ void loop() {
       button=1;
       buttonpress=millis();
       ratchet_editing=0;
+      save_hold_handled=0;
     }
   }
   else {
@@ -308,8 +302,14 @@ void loop() {
       }
       button=0;
       ratchet_editing=0;
+      save_hold_handled=0;
     }
     buttontimer=millis();
+  }
+
+  if(button&&!save_hold_handled&&((millis()-buttonpress)>=MANUAL_SAVE_HOLD_MS)){
+    save_hold_handled=1;
+    blinkSaveResult(saveSequenceToFlash());
   }
 
   samplepots();
@@ -640,25 +640,6 @@ void loop() {
 
   if (!button && (millis()-ledtimer) > LEDOFF ) LEDS.show();  // update LEDs only if not doing off flash
 
-  uint32_t currentHash=currentSequenceHash();
-  if (currentHash != sequenceShadowHash) {
-    sequenceShadowHash=currentHash;
-    sequenceDirty=1;
-    sequenceLastChange=millis();
-  }
-
-  if (sequenceDirty && ((millis()-sequenceLastChange) >= SAVE_DEBOUNCE_MS)) {
-    bool saved=saveSequenceToFlash();
-    if (saved) {
-      sequenceDirty=0;
-#ifdef DEBUG
-      Serial.println("saved sequencer data to flash");
-#endif
-    }
-#ifdef DEBUG
-    if (!saved) Serial.println("warning: failed to save sequencer data");
-#endif
-  }
 }
 
 // second core setup

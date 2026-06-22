@@ -51,6 +51,7 @@ Fourth pot - 3rd Oscillator tuning
 */
 
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include <math.h>
@@ -92,6 +93,10 @@ float samplerate=SAMPLERATE;  // for DaisySP
 int waveform=0;
 float minfreq[OSCSPERVOICE] ={50,100,200};
 volatile bool oscEnabled[OSCSPERVOICE] = {1,1,1};
+static constexpr uint32_t STATE_KEY=0x43534f54u;
+struct SavedState{int32_t waveform;float minfreq[OSCSPERVOICE];uint8_t enabled[OSCSPERVOICE];};
+PicoStateStore stateStore;
+static SavedState captureState(){SavedState s={waveform,{},{}};for(uint8_t i=0;i<OSCSPERVOICE;++i){s.minfreq[i]=minfreq[i];s.enabled[i]=oscEnabled[i];}return s;}
 
 // create daisySP processing objects
 Oscillator osc[VOICES * OSCSPERVOICE];
@@ -164,6 +169,8 @@ void setup() {
   }
 
   analogReadResolution(AD_BITS); // set up for max resolution
+  stateStore.begin(STATE_KEY,1);SavedState saved;
+  if(stateStore.load(&saved,sizeof(saved))&&saved.waveform>=0&&saved.waveform<NWAVES){bool valid=true;for(uint8_t i=0;i<OSCSPERVOICE;++i)valid&=isfinite(saved.minfreq[i])&&saved.minfreq[i]>=20&&saved.minfreq[i]<=160;if(valid){waveform=saved.waveform;for(uint8_t i=0;i<OSCSPERVOICE;++i){minfreq[i]=saved.minfreq[i];oscEnabled[i]=saved.enabled[i]!=0;osc[i].SetWaveform(waves[waveform]);}lockpots();}}
 
 // set up Pico I2S for PT8211 stereo DAC
 	DAC.setBCLK(BCLK);
@@ -196,8 +203,8 @@ void loop() {
         case OSCS:
           setLedColor(RED);
           if (!potlock[0]) {
-            uint8_t waveform=(map(pot[0],0,AD_RANGE,0,NWAVES));
-            for (int16_t i=0;i< OSCSPERVOICE;++i) osc[i].SetWaveform(waveform);
+            waveform=constrain(map(pot[0],0,AD_RANGE,0,NWAVES),0,NWAVES-1);
+            for (int16_t i=0;i< OSCSPERVOICE;++i) osc[i].SetWaveform(waves[waveform]);
           }
           if (!potlock[1]) updateOscTuningFromPot(0, pot[1]);
           if (!potlock[2]) updateOscTuningFromPot(1, pot[2]);

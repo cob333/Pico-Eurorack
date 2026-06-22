@@ -46,6 +46,7 @@
 //   OUT : Green Out
 
 #include <2HPico.h>
+#include <PicoStateStore.h>
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include "pico/multicore.h"
@@ -93,6 +94,11 @@ uint32_t rightPulseOff = 0;
 int16_t gateHighLevel = GATEHIGH;  // scaled by Pot2
 float prob = 0.5f;
 
+static constexpr uint32_t STATE_KEY = 0x48434e42u;
+struct SavedState { uint8_t primary, output, current_left, reserved; float probability; int16_t gate_level; uint16_t pad; };
+PicoStateStore stateStore;
+static SavedState captureState() { return {(uint8_t)primaryMode, (uint8_t)outputMode, (uint8_t)currentLeft, 0, prob, gateHighLevel, 0}; }
+
 static inline float potNorm(uint16_t v) {
   return (float)v / (float)(AD_RANGE - 1);
 }
@@ -107,11 +113,13 @@ void setLed(uint32_t color) {
 
 void updateParameters() {
   samplepots();
-  prob = potNorm(pot[0]);
+  if (!potlock[0]) prob = potNorm(pot[0]);
 
   // scale level 0..5V -> 0..32767 counts (DAC is inverted in hardware)
-  int32_t counts = map(pot[1], 0, AD_RANGE - 1, 0, 32767);
-  gateHighLevel = (int16_t)(-counts);
+  if (!potlock[1]) {
+    int32_t counts = map(pot[1], 0, AD_RANGE - 1, 0, 32767);
+    gateHighLevel = (int16_t)(-counts);
+  }
 }
 
 void makeOutputsLow() {
@@ -220,6 +228,18 @@ void setup() {
   // init pots
   lockpots();
   updateParameters();
+
+  stateStore.begin(STATE_KEY, 1);
+  SavedState saved;
+  if (stateStore.load(&saved, sizeof(saved)) && saved.primary < NUM_PRIMARY && saved.output < NUM_OUTPUT &&
+      isfinite(saved.probability) && saved.probability >= 0.0f && saved.probability <= 1.0f && saved.gate_level <= 0) {
+    primaryMode = (PrimaryMode)saved.primary;
+    outputMode = (OutputMode)saved.output;
+    currentLeft = saved.current_left != 0;
+    prob = saved.probability;
+    gateHighLevel = saved.gate_level;
+    lockpots();
+  }
 
   // set up Pico I2S for PT8211 stereo DAC
   DAC.setBCLK(BCLK);

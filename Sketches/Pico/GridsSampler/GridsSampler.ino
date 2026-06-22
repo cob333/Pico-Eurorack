@@ -49,6 +49,7 @@
 // Pot 4 - Channel 4 Sample
 
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include <math.h>
@@ -108,6 +109,9 @@ bool button=0;  // keeps track of button state
 enum UIstates {SET1,SET2,SET3} ;
 uint8_t UIstate=SET1;
 uint32_t buttontimer,clocktimer,clockdebouncetimer,resetdebouncetimer,ledtimer;
+uint32_t save_buttonpress=0;
+bool save_hold_handled=0;
+#define MANUAL_SAVE_HOLD_MS 3000
 
 #define LEDOFF 25 // LED trigger flash time 
 
@@ -128,6 +132,16 @@ struct voice_t {
   3,    // default voice 3 assignment 
   127,   // max volume
 };  
+
+static constexpr uint32_t STATE_KEY = 0x44495247u;
+struct SavedState { int16_t x, y, chaos, last_randomness, last_sample; int16_t fills[NUM_CHANNELS]; voice_t voices[NUM_VOICES]; };
+PicoStateStore stateStore;
+static SavedState captureState() {
+  SavedState s = {x, y, chaos, last_ch_randomness, last_ch_sample, {}, {}};
+  memcpy(s.fills, fill, sizeof(fill)); memcpy(s.voices, voice, sizeof(voice)); return s;
+}
+
+static void blinkSaveResult(bool saved){uint32_t color=saved?GREEN:RED;for(uint8_t i=0;i<3;++i){LEDS.setPixelColor(0,color);LEDS.show();delay(120);LEDS.setPixelColor(0,0);LEDS.show();delay(120);}}
 
 
 // we can have an arbitrary number of samples but you will run out of memory (or CPU) at some point
@@ -193,6 +207,15 @@ void setup() {
     potlock[i]=0;
   }
 
+  stateStore.begin(STATE_KEY, 1);
+  SavedState saved;
+  if (stateStore.load(&saved, sizeof(saved)) && saved.x >= 0 && saved.x <= MAX_VAL && saved.y >= 0 && saved.y <= MAX_VAL && saved.chaos >= 0 && saved.chaos <= MAX_VAL) {
+    bool valid = saved.last_randomness >= 0 && saved.last_randomness <= 100;
+    for (uint8_t i=0;i<NUM_CHANNELS;++i) valid &= saved.fills[i] >= 0 && saved.fills[i] <= MAX_VAL;
+    for (uint8_t i=0;i<NUM_VOICES;++i) valid &= saved.voices[i].sample >= 0 && saved.voices[i].sample < NUM_SAMPLES;
+    if (valid) { x=saved.x; y=saved.y; chaos=saved.chaos; last_ch_randomness=saved.last_randomness; last_ch_sample=saved.last_sample; memcpy(fill,saved.fills,sizeof(fill)); memcpy(voice,saved.voices,sizeof(voice)); lockpots(); }
+  }
+
 
   // Enable the AudioShield
 // set up Pico I2S for PT8211 stereo DAC
@@ -216,6 +239,8 @@ void loop() {
   if (!digitalRead(BUTTON1)) {
     if (((millis()-buttontimer) > DEBOUNCE) && !button) {  // if button pressed advance to next parameter set
       button=1;  
+      save_buttonpress=millis();
+      save_hold_handled=0;
       ++UIstate;
       if (UIstate >= NUMUISTATES) UIstate=SET1;
       lockpots();
@@ -225,7 +250,10 @@ void loop() {
   else {
     buttontimer=millis();
     button=0;
+    save_hold_handled=0;
   }
+
+  if(button&&!save_hold_handled&&((millis()-save_buttonpress)>=MANUAL_SAVE_HOLD_MS)){save_hold_handled=1;SavedState saved=captureState();blinkSaveResult(stateStore.save(&saved,sizeof(saved)));}
 
   samplepots();
 
@@ -348,8 +376,5 @@ void loop1(){
   digitalWrite(CPU_USE,1); // hi = CPU busy
 #endif
 }
-
-
-
 
 

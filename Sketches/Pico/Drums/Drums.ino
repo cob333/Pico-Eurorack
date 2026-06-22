@@ -43,6 +43,7 @@
 // RH / WY Mar 2026
 
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include "pico/multicore.h"
@@ -95,6 +96,16 @@ ModelParams params[NUM_MODELS] = {
   {0.70f, 0.55f, 0.50f, 0.40f}, // HiHat
   {0.45f, 0.65f, 0.55f, 0.50f}  // Synth Snare
 };
+
+static constexpr uint32_t STATE_KEY = 0x4d555244u;
+struct SavedState { uint8_t model; uint8_t reserved[3]; ModelParams params[NUM_MODELS]; };
+PicoStateStore stateStore;
+static SavedState captureState() {
+  SavedState s = {};
+  s.model = currentModel;
+  memcpy(s.params, params, sizeof(params));
+  return s;
+}
 
 // Per-model output gain to level-match (1.0 = unity)
 float modelGain[NUM_MODELS] = {
@@ -247,6 +258,17 @@ void setup() {
   synthSnare.Init(samplerate);
 
   analogReadResolution(AD_BITS); // max ADC resolution
+
+  stateStore.begin(STATE_KEY, 1);
+  SavedState saved;
+  if (stateStore.load(&saved, sizeof(saved)) && saved.model < NUM_MODELS) {
+    bool valid = true;
+    for (uint8_t m = 0; m < NUM_MODELS; ++m) {
+      const float *v = reinterpret_cast<const float*>(&saved.params[m]);
+      for (uint8_t i = 0; i < 4; ++i) valid &= isfinite(v[i]) && v[i] >= 0.0f && v[i] <= 1.0f;
+    }
+    if (valid) { currentModel = saved.model; memcpy(params, saved.params, sizeof(params)); lockpots(); }
+  }
 
   LEDS.begin();
   setLedForModel(currentModel);

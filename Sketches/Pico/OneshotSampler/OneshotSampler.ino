@@ -60,9 +60,9 @@ RP2350 optimizations:
 */
 
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
-#include <EEPROM.h>
 #include <math.h>
 #include "pico/multicore.h"
 
@@ -72,7 +72,6 @@ RP2350 optimizations:
 #define SAMPLERATE 44100
 #define CONTROL_UPDATE_MS 5
 #define CVIN_VOLT 580.6f
-#define EEPROM_BYTES 256
 #define ONESHOT_STORE_MAGIC 0x4f4e5331u
 #define ONESHOT_STORE_VERSION 1u
 #define SAVE_HOLD_MS 3000UL
@@ -128,6 +127,7 @@ float decay_time = 0.40f;
 float sample_randomness = 0.0f;
 bool decay_hold = 0;
 bool reverse_playback = 0;
+PicoStateStore stateStore;
 
 volatile float live_gain = 1.0f;
 volatile float live_tone_coeff = 1.0f;
@@ -381,7 +381,7 @@ static void copy_state_to_store(OneshotStore &data) {
 
 static bool load_state_from_flash(void) {
   OneshotStore data;
-  EEPROM.get(0, data);
+  if (!stateStore.load(&data, sizeof(data))) return 0;
   if (!validate_store(data)) return 0;
 
   UIstate = data.ui_state;
@@ -409,8 +409,7 @@ static bool save_state_to_flash(void) {
   sanitize_runtime_state();
   copy_state_to_store(data);
   data.checksum = oneshot_store_checksum(data);
-  EEPROM.put(0, data);
-  return EEPROM.commit();
+  return stateStore.save(&data, sizeof(data));
 }
 
 static uint16_t choose_trigger_sample(uint16_t bank_index, uint16_t sample_count) {
@@ -603,7 +602,7 @@ void setup() {
   init_lookup_tables();
   randomSeed((uint32_t)sampleCV2() ^ micros());
 
-  EEPROM.begin(EEPROM_BYTES);
+  stateStore.begin(ONESHOT_STORE_MAGIC, ONESHOT_STORE_VERSION);
   if (load_state_from_flash()) {
     lockpots();
   }
@@ -623,7 +622,6 @@ void setup() {
 
 void loop() {
   service_button();
-
   if ((millis() - parameterupdate) >= CONTROL_UPDATE_MS) {
     parameterupdate = millis();
     samplepots();

@@ -196,7 +196,6 @@ APPS = [
     AppDef("BeatBreaker", "picofx", "BeatBreaker", "Sketches/PicoFX/BeatBreaker", "Build/PicoFX/250MHz/BeatBreaker_250MHz.uf2"),
     AppDef("Sidechain", "picofx", "Sidechain", "Sketches/PicoFX/Sidechain", "Build/PicoFX/150MHz/Sidechain_150MHz.uf2"),
     AppDef("Panner", "picofx", "Panner", "Sketches/PicoFX/Panner", "Build/PicoFX/150MHz/Panner_150MHz.uf2"),
-    AppDef("Space", "picofx", "Space", "Sketches/PicoFX/Space", None),
     AppDef("SpectralSmash", "picofx", "SpectralSmash", "Sketches/PicoFX/SpectralSmash", None),
     AppDef("Tremolo", "picofx", "Tremolo", "Sketches/PicoFX/Tremolo", None),
     AppDef("Clouds", "picofx", "Clouds", "Sketches/PicoFX/Clouds", None),
@@ -374,7 +373,14 @@ def size_probe_uf2(app: AppDef, build_missing: bool = False) -> Path | None:
     prune_size_cache_build_path(build_path)
     cached = sorted(build_path.glob("*.ino.uf2"))
     if cached:
-        return cached[0]
+        # Size probes are kept without their Arduino build directory, so they
+        # cannot use the normal metadata cache validation. Do not let an old
+        # UF2 determine a too-small final slot after sketch/library changes.
+        input_mtime = build_inputs_mtime_ns(app)
+        if cached[0].stat().st_mtime_ns >= input_mtime:
+            return cached[0]
+        for path in cached:
+            path.unlink(missing_ok=True)
     if not build_missing:
         return None
     try:

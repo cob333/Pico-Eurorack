@@ -41,9 +41,9 @@
 // the heaviest Rings models while keeping 4-voice modes available.
 
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
-#include <EEPROM.h>
 #include "pico/multicore.h"
 
 #define MONITOR_CPU1
@@ -63,7 +63,6 @@ uint8_t UIstate = SET1;
 
 constexpr uint32_t kControlUpdateMs = 10;
 #define CV_VOLT_DEFAULT 582.52f
-#define EEPROM_BYTES 256
 #define RINGS_STORE_MAGIC 0x52494E47u // "RING"
 #define RINGS_STORE_VERSION 3u
 #define LEGACY_RINGS_STORE_VERSION 2u
@@ -96,6 +95,7 @@ float slide_value = 0.0f;
 uint8_t polyphony_setting = 1;
 uint8_t resonator_type = rings::RESONATOR_MODEL_MODAL;
 float cvVolt = CV_VOLT_DEFAULT;
+PicoStateStore stateStore;
 
 struct RingsStore {
   uint32_t magic;
@@ -244,7 +244,7 @@ static void copyStateToStore(RingsStore &data) {
 
 static bool loadStateFromFlash() {
   RingsStore data;
-  EEPROM.get(0, data);
+  if (!stateStore.load(&data, sizeof(data))) return false;
   if (validateStore(data)) {
     UIstate = data.ui_state;
     structure_value = data.structure_value;
@@ -260,22 +260,7 @@ static bool loadStateFromFlash() {
     return true;
   }
 
-  LegacyRingsStore legacy_data;
-  EEPROM.get(0, legacy_data);
-  if (!validateLegacyRingsStore(legacy_data)) return false;
-
-  UIstate = legacy_data.ui_state;
-  structure_value = legacy_data.structure_value;
-  damping_value = legacy_data.damping_value;
-  brightness_value = legacy_data.brightness_value;
-  base_note = legacy_data.base_note;
-  position_value = legacy_data.position_value;
-  slide_value = 0.0f;
-  cvVolt = legacy_data.cvVolt;
-  polyphony_setting = legacy_data.polyphony_setting;
-  resonator_type = legacy_data.resonator_type;
-  sanitizeRuntimeState();
-  return true;
+  return false;
 }
 
 static bool saveStateToFlash() {
@@ -283,8 +268,7 @@ static bool saveStateToFlash() {
   copyStateToStore(data);
   data.checksum = ringsStoreChecksum(data);
 
-  EEPROM.put(0, data);
-  return EEPROM.commit();
+  return stateStore.save(&data, sizeof(data));
 }
 
 static void setLedColor(uint32_t color) {
@@ -474,7 +458,7 @@ void setup() {
     potlock[i] = 0;
   }
 
-  EEPROM.begin(EEPROM_BYTES);
+  stateStore.begin(RINGS_STORE_MAGIC, RINGS_STORE_VERSION);
   if (loadStateFromFlash()) {
     lockpots();
   }
@@ -549,7 +533,6 @@ void loop() {
 
   current_note = SamplePitchNote();
   PushUiState(current_note);
-
   if (!digitalRead(TRIGGER)) {
     if (((millis() - trigtimer) > TRIG_DEBOUNCE) && !trigger) {
       trigger = true;

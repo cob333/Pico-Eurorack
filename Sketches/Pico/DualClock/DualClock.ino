@@ -47,6 +47,7 @@
 //   long press 3s -> toggle sync mode (clock 1 master, clock 2 ratio from Pot 2 x8..x1../8)
 
 #include <2HPico.h>
+#include <PicoStateStore.h>
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include "pico/multicore.h"
@@ -124,6 +125,11 @@ uint32_t ledcolor = 0;
 int8_t syncRatioStep = 0;  // -7..+7 => /8..x8
 uint8_t syncRatioMul = 1;
 uint8_t syncRatioDiv = 1;
+
+static constexpr uint32_t STATE_KEY = 0x4b4c4344u;
+struct SavedState { float tap_bpm, swing, random_amount; uint32_t period1, period2; int8_t ratio_step; uint8_t divider1, divider2, sync_mode; };
+PicoStateStore stateStore;
+static SavedState captureState() { return {tapBpm, swingAmount, randomAmount, clk1.periodUs, clk2.periodUs, syncRatioStep, clk1.divider, clk2.divider, (uint8_t)syncMode}; }
 
 void forceGateLow(ClockState &clk, volatile int16_t *out);
 
@@ -442,6 +448,18 @@ void setup() {
   ledcolor = RED;
 
   randomSeed(analogRead(AIN2) + micros());
+
+  stateStore.begin(STATE_KEY, 1);
+  SavedState saved;
+  if (stateStore.load(&saved, sizeof(saved)) && isfinite(saved.tap_bpm) && saved.tap_bpm >= BPM_MIN && saved.tap_bpm <= BPM_MAX &&
+      isfinite(saved.swing) && saved.swing >= 0.0f && saved.swing <= SWING_MAX && isfinite(saved.random_amount) && saved.random_amount >= 0.0f && saved.random_amount <= 1.0f &&
+      saved.ratio_step >= -7 && saved.ratio_step <= 7 && saved.divider1 >= 1 && saved.divider1 <= 16 && saved.divider2 >= 1 && saved.divider2 <= 16) {
+    tapBpm = saved.tap_bpm; swingAmount = saved.swing; randomAmount = saved.random_amount;
+    clk1.periodUs = saved.period1; clk2.periodUs = saved.period2; clk1.divider = saved.divider1; clk2.divider = saved.divider2; syncMode = saved.sync_mode != 0;
+    syncRatioStep = saved.ratio_step - 1;
+    updateSyncRatio((uint16_t)map(saved.ratio_step, -7, 7, 0, AD_RANGE - 1));
+    lockpots();
+  }
 
   clk1.periodUs = bpmToPeriodUs(tapBpm);
   clk2.periodUs = bpmToPeriodUs(tapBpm);

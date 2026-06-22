@@ -81,6 +81,7 @@ Fourth pot -
 */
 
 #include "2HPico.h"
+#include "PicoStateStore.h"
 #include <I2S.h>
 #include <Adafruit_NeoPixel.h>
 #include <math.h>
@@ -124,6 +125,12 @@ float filterresonance=0.1;
 float lfofreq=1.0;
 float lfofreqmod=0;
 float lfofiltermod=0;
+float adsrAttack=0.0f,adsrDecay=0.4f,adsrSustain=0.0f,adsrRelease=0.0f;
+int lfoWaveform=Oscillator::WAVE_TRI;
+static constexpr uint32_t STATE_KEY=0x474f4f4du;
+struct SavedState{int32_t waveform,lfoWaveform;float minfreq[OSCSPERVOICE],filterfreq,envelopefiltermod,filterresonance,lfofreq,lfofiltermod,attack,decay,sustain,release;};
+PicoStateStore stateStore;
+static SavedState captureState(){SavedState s={waveform,lfoWaveform,{minfreq[0],minfreq[1],minfreq[2]},filterfreq,envelopefiltermod,filterresonance,lfofreq,lfofiltermod,adsrAttack,adsrDecay,adsrSustain,adsrRelease};return s;}
 
 // create daisySP processing objects
 Oscillator osc[VOICES * OSCSPERVOICE];
@@ -189,6 +196,10 @@ void setup() {
   lfo.SetFreq(lfofreq);
   lfo.SetWaveform(Oscillator::WAVE_TRI);
 
+  analogReadResolution(AD_BITS);
+  stateStore.begin(STATE_KEY,1);SavedState saved;
+  if(stateStore.load(&saved,sizeof(saved))&&saved.waveform>=Oscillator::WAVE_TRI&&saved.waveform<=Oscillator::WAVE_POLYBLEP_TRI&&isfinite(saved.filterfreq)&&saved.filterfreq>=20&&saved.filterfreq<=2500&&isfinite(saved.filterresonance)&&saved.filterresonance>=0&&saved.filterresonance<=0.95){waveform=saved.waveform;lfoWaveform=saved.lfoWaveform;for(uint8_t i=0;i<OSCSPERVOICE;++i){minfreq[i]=saved.minfreq[i];osc[i].SetWaveform(waveform);}filterfreq=saved.filterfreq;envelopefiltermod=saved.envelopefiltermod;filterresonance=saved.filterresonance;lfofreq=saved.lfofreq;lfofiltermod=saved.lfofiltermod;adsrAttack=saved.attack;adsrDecay=saved.decay;adsrSustain=saved.sustain;adsrRelease=saved.release;filt.SetRes(filterresonance);lfo.SetFreq(lfofreq);lfo.SetWaveform(lfoWaveform);env.SetTime(ADSR_SEG_ATTACK,adsrAttack);env.SetTime(ADSR_SEG_DECAY,adsrDecay);env.SetSustainLevel(adsrSustain);env.SetTime(ADSR_SEG_RELEASE,adsrRelease);lockpots();}
+
   analogReadResolution(AD_BITS); // set up for max resolution
 
 // set up Pico I2S for PT8211 stereo DAC
@@ -234,7 +245,7 @@ void loop() {
           if (!potlock[1]) minfreq[1]=(mapf(pot[1],0,AD_RANGE-1,20,160)); // 4 octave range
           if (!potlock[2]) minfreq[2]=(mapf(pot[2],0,AD_RANGE-1,20,160)); // 4 octave range
           if (!potlock[3]) {
-            int8_t waveform=(map(pot[3],0,AD_RANGE-1,Oscillator::WAVE_TRI,Oscillator::WAVE_POLYBLEP_TRI)); // some waveforms mess up the oscillator - either running out of CPU or should be changing it on core 1
+            waveform=(map(pot[3],0,AD_RANGE-1,Oscillator::WAVE_TRI,Oscillator::WAVE_POLYBLEP_TRI));
             for (int16_t i=0;i< OSCSPERVOICE;++i) osc[i].SetWaveform(waveform);
           }
           break;
@@ -242,21 +253,21 @@ void loop() {
         case FILTER:
           LEDS.setPixelColor(0, ORANGE);    
           if (!potlock[0]) filterfreq=(mapf(pot[0],0,AD_RANGE-1,20,2500)); //    
-          if (!potlock[1]) filt.SetRes(mapf(pot[1],0,AD_RANGE-1,0,0.95));  // don't take resonance too high or filter behaves badly
+          if (!potlock[1]) {filterresonance=mapf(pot[1],0,AD_RANGE-1,0,0.95);filt.SetRes(filterresonance);}
           if (!potlock[2]) envelopefiltermod=(mapf(pot[2],0,AD_RANGE-1,0,1.0));        
           if (!potlock[3]) lfofiltermod=(mapf(pot[3],0,AD_RANGE-1,0,1.0));
           break;
         case ADSR:
           LEDS.setPixelColor(0, GREEN);
-          if (!potlock[0]) env.SetTime(ADSR_SEG_ATTACK, mapf(pot[0],0,AD_RANGE-1,0,2)); // up to 2 seconds per segment
-          if (!potlock[1]) env.SetTime(ADSR_SEG_DECAY, mapf(pot[1],0,AD_RANGE-1,0,2));
-          if (!potlock[2]) env.SetSustainLevel(mapf(pot[2],0,AD_RANGE-1,0,1));
-          if (!potlock[3]) env.SetTime(ADSR_SEG_RELEASE, mapf(pot[3],0,AD_RANGE-1,0,2));    
+          if (!potlock[0]) {adsrAttack=mapf(pot[0],0,AD_RANGE-1,0,2);env.SetTime(ADSR_SEG_ATTACK,adsrAttack);}
+          if (!potlock[1]) {adsrDecay=mapf(pot[1],0,AD_RANGE-1,0,2);env.SetTime(ADSR_SEG_DECAY,adsrDecay);}
+          if (!potlock[2]) {adsrSustain=mapf(pot[2],0,AD_RANGE-1,0,1);env.SetSustainLevel(adsrSustain);}
+          if (!potlock[3]) {adsrRelease=mapf(pot[3],0,AD_RANGE-1,0,2);env.SetTime(ADSR_SEG_RELEASE,adsrRelease);}
           break; 
         case LFO:
           LEDS.setPixelColor(0, BLUE);
-          if (!potlock[2]) lfo.SetFreq((mapf(pot[2],0,AD_RANGE-1,0.1,10)));
-          if (!potlock[3]) lfo.SetWaveform(map(pot[3],0,AD_RANGE-1,Oscillator::WAVE_TRI,Oscillator::WAVE_POLYBLEP_TRI));
+          if (!potlock[2]) {lfofreq=mapf(pot[2],0,AD_RANGE-1,0.1,10);lfo.SetFreq(lfofreq);}
+          if (!potlock[3]) {lfoWaveform=map(pot[3],0,AD_RANGE-1,Oscillator::WAVE_TRI,Oscillator::WAVE_POLYBLEP_TRI);lfo.SetWaveform(lfoWaveform);}
           break;
 
     }
@@ -323,5 +334,3 @@ static  int32_t outsample;
   digitalWrite(CPU_USE,1); // hi = CPU busy
 #endif
 }
-
-
