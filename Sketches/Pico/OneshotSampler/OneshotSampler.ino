@@ -647,6 +647,11 @@ void loop() {
   if (!digitalRead(TRIGGER)) {
     if (((micros() - trigtimer) > TRIG_DEBOUNCE) && !triggered) {
       triggered = 1;
+      // Latch CV at the trigger edge.  The regular control update only runs
+      // every CONTROL_UPDATE_MS, so using its cached value here can replay the
+      // previous sample when CV and trigger change at nearly the same time.
+      // sampleCV2() already averages CV_AVERAGING ADC reads in 2HPico.h.
+      refresh_cv_assignment();
       trigger_voice();
     }
   }
