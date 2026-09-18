@@ -100,7 +100,7 @@
             page("Steps 5-8", ["Step 5 pitch", "Step 6 pitch", "Step 7 pitch", "Step 8 pitch"], led("violet")),
             page("Steps 9-12", ["Step 9 pitch", "Step 10 pitch", "Step 11 pitch", "Step 12 pitch"], led("blue")),
             page("Steps 13-16", ["Step 13 pitch", "Step 14 pitch", "Step 15 pitch", "Step 16 pitch"], led("aqua")),
-            page("Global", ["Scale", "Internal clock divider", "Steps length 1-16", "Overall pitch"], led("green"))
+            page("Global", ["Scale", "Clock divide/mutiple(/4~*4)", "Steps length 1-16", "Overall pitch"], led("green"))
           ], io("Clock in", "Click to change pages", "Gate out", "V/oct out"), info(true, "Hold to edit ratchet for each step \n Blink yellow at the first step")),
           app("TripleOSC", "Three oscillator voice", [
             page("Main", ["Waveform: Sine / Triangle / Saw / Ramp", "Oscillator 1 tuning", "Oscillator 2 tuning", "Oscillator 3 tuning"], led("red"))
