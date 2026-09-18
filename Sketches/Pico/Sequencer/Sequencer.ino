@@ -60,7 +60,7 @@
 
 // page 5 parameters Green LED
 // Pot 1 - scale
-// Pot 2 - clock divider
+// Pot 2 - clock ratio: /4, /3, /2, x1, x2, x3, x4
 // Pot 3 - number of steps
 // Pot 4 - overall pitch
 
@@ -108,12 +108,20 @@ int8_t stepindex=0;
 int8_t laststep=15;
 int16_t scale=0;
 
-int8_t clockdivideby=1;  // divide input clock by this
+int8_t clockdivideby=1;  // positive: divisor 1..4; negative: multiplier -2..-4
 int8_t clockdivider=1;   // counts down clocks
 bool clockForceFirstStep=1; // after reset/idle, first valid clock always advances one step
 
+uint32_t lastClockUs=0;
+uint32_t inputPeriodUs=0;
+uint32_t multiplyAnchorUs=0;
+uint32_t multiplyPeriodUs=0;
+uint8_t multiplyIndex=0;
+uint8_t multiplyCount=1;
+bool haveClockEdge=0;
+static constexpr uint32_t MIN_GATE_US=1000;
+
 bool clocked=0;  // keeps track of clock state
-bool clockidle=0;  // true after clock timeout reset
 bool button=0;  // keeps track of button state
 bool ratchet_active=0;
 bool ratchet_editing=0;
@@ -129,15 +137,16 @@ uint16_t ratchet_pot_last[NUMPOTS]={0,0,0,0};
 #define NUMUISTATES 5
 enum UIstates {SET1,SET2,SET3,SET4,SET5} ;
 uint8_t UIstate=SET1;
-uint32_t buttontimer,buttonpress,clocktimer,clockperiod,clockdebouncetimer,ledtimer, gatetimer, gatelength;
+uint32_t buttontimer,buttonpress,clockperiod,clockdebouncetimer,ledtimer, gatetimer, gatelength;
 
 #define LEDOFF 100 // LED trigger flash time 
-#define CLOCK_RESET_MS 1000  // reset to step 1 after 1s without clock
+#define CLOCK_RESET_MS 2500  // reset to step 1 after 2.5s without external clock
+#define INITIAL_CLOCK_PERIOD_US 1000000UL  // retain startup timing before measuring input
 #define LONG_PRESS_MS 500  // hold time to enter ratchet edit mode
 #define MANUAL_SAVE_HOLD_MS 3000
 #define RATCHET_POT_THRESHOLD 150  // pot delta required to accept ratchet change
 #define SEQ_STORE_MAGIC 0x32535051u // "2SPQ"
-#define SEQ_STORE_VERSION 1u
+#define SEQ_STORE_VERSION 2u
 
 PicoStateStore stateStore;
 
@@ -183,11 +192,14 @@ static void copyStateToStore(SequencerStore &data) {
 
 static bool validateStore(const SequencerStore &data) {
   if (data.magic != SEQ_STORE_MAGIC) return 0;
-  if (data.version != SEQ_STORE_VERSION) return 0;
+  if (data.version != 1 && data.version != SEQ_STORE_VERSION) return 0;
   if (data.checksum != sequencerChecksum(data)) return 0;
   if (data.laststep < 0 || data.laststep >= MAX_STEPS) return 0;
   if (data.scale < 0 || data.scale > MAX_SCALES) return 0;
-  if (data.clockdivideby < 1 || data.clockdivideby > 8) return 0;
+  if (data.version == 1) {
+    if (data.clockdivideby < 1 || data.clockdivideby > 8) return 0;
+  } else if (!((data.clockdivideby >= 1 && data.clockdivideby <= 4) ||
+               (data.clockdivideby >= -4 && data.clockdivideby <= -2))) return 0;
   if (data.cvoffset < CVOUTMIN || data.cvoffset > 32767) return 0;
   for (int i=0; i<MAX_STEPS; ++i) {
     if (data.notes[i] < -1 || data.notes[i] > NOTERANGE) return 0;
@@ -208,6 +220,7 @@ static bool loadSequenceFromFlash() {
   laststep=data.laststep;
   scale=data.scale;
   clockdivideby=data.clockdivideby;
+  if (data.version == 1 && clockdivideby > 4) clockdivideby=4;
   clockdivider=clockdivideby;
   cvoffset=data.cvoffset;
   return 1;
@@ -225,6 +238,57 @@ static void blinkSaveResult(bool saved) {
   for(uint8_t i=0;i<3;++i){LEDS.setPixelColor(0,color);LEDS.show();delay(120);LEDS.setPixelColor(0,0);LEDS.show();delay(120);}
 }
 
+
+// Called by both physical edges and predicted subdivisions. All gate times are us.
+static void advanceSequence(uint32_t now, uint32_t periodUs) {
+  clockperiod=periodUs;
+  uint8_t rcount=ratchets[stepindex];
+  if (rcount < 1) rcount=1;
+  // Preserve at least 1 ms high and low, reducing ratchets at high rates.
+  uint32_t maxCount=clockperiod/(2*MIN_GATE_US);
+  if (maxCount < 1) maxCount=1;
+  if (rcount > maxCount) rcount=maxCount;
+  ratchet_count=rcount;
+  ratchet_index=0;
+  ratchet_active=0;
+  ratchet_interval=clockperiod/ratchet_count;
+  if (ratchet_interval < 2*MIN_GATE_US) ratchet_interval=2*MIN_GATE_US;
+
+  if (notes[stepindex]>=0) {  // negative note value is silent so don't change CV
+    cvout=-(quantize(notes[stepindex],scales[scale],0)*(CVOUT_VOLT/12)+CVOUTMIN+cvoffset); // 1v per octave. note numbers are MIDI style 0-127. DAC out is inverted.
+    gateout=GATEHIGH;
+    if (ratchet_count > 1) {
+      gatelength=ratchet_interval/2;
+      if (gatelength < MIN_GATE_US) gatelength=MIN_GATE_US;
+      ratchet_active=1;
+      ratchet_index=1;
+      ratchet_next_time=now+ratchet_interval;
+    }
+    else gatelength=clockperiod/2; // could be made adjustable
+    gatetimer=now; // start gate timer
+ //         Serial.printf("scale %s note %s \n",scalenames[scale],notenames[notes[stepindex]%12]);
+  }
+  else gateout=GATELOW;
+  if (!button) {
+    uint32_t stepcolor = (stepindex == 0) ? YELLOW : 0;
+    LEDS.setPixelColor(0, stepcolor); // blink each step, orange on step 1
+    LEDS.show();  // update LED
+    ledtimer=millis(); // start led flash timer
+  }
+  ++stepindex; // advance sequencer  could add sequencer modes - pingpong, reverse etc
+  if (stepindex > laststep) stepindex=0;
+}
+
+static void resetClockTracking() {
+  stepindex=0;
+  clockdivider=clockdivideby > 0 ? clockdivideby : 1;
+  clockForceFirstStep=1;
+  haveClockEdge=0;
+  inputPeriodUs=0;
+  multiplyIndex=0;
+  gateout=GATELOW;
+  ratchet_active=0;
+}
 
 void setup() { 
   Serial.begin(115200);
@@ -254,7 +318,7 @@ void setup() {
   // Without this, loaded sequence data can be overwritten on first loop.
   samplepots();
 
-  stateStore.begin(SEQ_STORE_MAGIC, SEQ_STORE_VERSION);
+  stateStore.begin(SEQ_STORE_MAGIC, 1); // retain storage envelope for v1 migration
   bool loaded=loadSequenceFromFlash();
 #ifdef DEBUG
   if (loaded) Serial.println("loaded sequencer data from flash");
@@ -274,8 +338,7 @@ void setup() {
 #ifdef DEBUG  
   Serial.println("finished setup");  
 #endif
-  clocktimer=millis(); // initial clock measurement
-  clockperiod=CLOCK_RESET_MS;
+  clockperiod=INITIAL_CLOCK_PERIOD_US;
   clockForceFirstStep=1;
   lockpots(); // keep loaded sequence until pots move significantly
 }
@@ -535,7 +598,20 @@ void loop() {
       pagecolor=GREEN;
       LEDS.setPixelColor(0, pagecolor);
       if (!potlock[0]) scale=map(pot[0],0,AD_RANGE,0,MAX_SCALES);  // set scale - too many scales gets hard to discern by ear
-      if (!potlock[1]) clockdivideby=map(pot[1],0,AD_RANGE-1,1,8); // set clock divider
+      if (!potlock[1]) {
+        static const int8_t ratios[7]={4,3,2,1,-2,-3,-4};
+        uint8_t slot=((uint32_t)pot[1]*7)/AD_RANGE;
+        if (slot > 6) slot=6;
+        int8_t ratio=ratios[slot];
+        if (ratio != clockdivideby) {
+          clockdivideby=ratio;
+          clockdivider=ratio > 0 ? ratio : 1;
+          clockForceFirstStep=1;
+          multiplyIndex=0;
+          ratchet_active=0;
+          gateout=GATELOW;
+        }
+      }
       if (!potlock[2]) {
         int16_t steps=(pot[2]*MAX_STEPS + (AD_RANGE/2)) / AD_RANGE; // round to reach full range
         if (steps < 1) steps=1;
@@ -553,90 +629,74 @@ void loop() {
     LEDS.show();
   }
 
-  if (!digitalRead(CLOCKIN)) {  // look for rising edge of clock input which is inverted
-    if (((millis()-clockdebouncetimer) > CLOCK_DEBOUNCE) && !clocked) {  // true if we have a debounced clock rising edge
-      bool advanceStep=0;
-      if (clockForceFirstStep) {
-        clockForceFirstStep=0;
-        clockdivider=clockdivideby; // restart divider window after forced first step
-        advanceStep=1;
-      } else {
-        --clockdivider;
-        if (clockdivider <=0) {
-          clockdivider=clockdivideby;
-          advanceStep=1;
-        }
-      }
+  uint32_t nowUs=micros();
+  // Timeout follows physical input edges, never divided or synthesized steps.
+  if (haveClockEdge && (nowUs-lastClockUs) > CLOCK_RESET_MS*1000UL) {
+    resetClockTracking();
+  }
+
+  if (!digitalRead(CLOCKIN)) {
+    if (((millis()-clockdebouncetimer) > CLOCK_DEBOUNCE) && !clocked) {
       clocked=1;
+      if (haveClockEdge) inputPeriodUs=nowUs-lastClockUs;
+      lastClockUs=nowUs;
+      haveClockEdge=1;
+      multiplyIndex=0; // physical edge supersedes any old prediction
+      bool advanceStep=clockForceFirstStep;
+      clockForceFirstStep=0;
+      if (clockdivideby < 0) {
+        advanceStep=1;
+        multiplyCount=(uint8_t)-clockdivideby;
+        multiplyAnchorUs=nowUs;
+        multiplyPeriodUs=inputPeriodUs;
+        // Wait for a measured period; omit subdivisions too fast for gate output.
+        if (inputPeriodUs/multiplyCount >= 2*MIN_GATE_US) multiplyIndex=1;
+      } else if (advanceStep) {
+        clockdivider=clockdivideby;
+      } else if (--clockdivider <= 0) {
+        clockdivider=clockdivideby;
+        advanceStep=1;
+      }
       if (advanceStep) {
-        uint32_t now=millis();
-        if (!clockidle) clockperiod=now-clocktimer; // measure clock so we can set gate time relative to clock period
-        clocktimer=now;
-        clockidle=0;
-
-        uint8_t rcount=ratchets[stepindex];
-        if (rcount < 1) rcount=1;
-        ratchet_count=rcount;
-        ratchet_index=0;
-        ratchet_active=0;
-        ratchet_interval=clockperiod/ratchet_count;
-        if (ratchet_interval < 1) ratchet_interval=1;
-
-        if (notes[stepindex]>=0) {  // negative note value is silent so don't change CV
-          cvout=-(quantize(notes[stepindex],scales[scale],0)*(CVOUT_VOLT/12)+CVOUTMIN+cvoffset); // 1v per octave. note numbers are MIDI style 0-127. DAC out is inverted. 
-          gateout=GATEHIGH;
-          if (ratchet_count > 1) {
-            gatelength=ratchet_interval/2;
-            if (gatelength < 1) gatelength=1;
-            ratchet_active=1;
-            ratchet_index=1;
-            ratchet_next_time=now+ratchet_interval;
-          }
-          else gatelength=clockperiod/2; // could be made adjustable
-          gatetimer=now; // start gate timer
- //         Serial.printf("scale %s note %s \n",scalenames[scale],notenames[notes[stepindex]%12]);
-        }
-        else gateout=GATELOW;
-        if (!button) {
-          uint32_t stepcolor = (stepindex == 0) ? YELLOW : 0;
-          LEDS.setPixelColor(0, stepcolor); // blink each step, orange on step 1
-          LEDS.show();  // update LED
-          ledtimer=millis(); // start led flash timer
-        }
-        ++stepindex; // advance sequencer  could add sequencer modes - pingpong, reverse etc
-        if (stepindex > laststep) stepindex=0;
+        uint32_t period=inputPeriodUs ? inputPeriodUs : INITIAL_CLOCK_PERIOD_US;
+        period=clockdivideby > 0 ? period*clockdivideby : period/(-clockdivideby);
+        advanceSequence(nowUs, period);
       }
     }
+  } else {
+    clocked=0;
+    clockdebouncetimer=millis();
   }
-  else {   
-      clocked=0;
-      clockdebouncetimer=millis();
-  }
-//Serial.printf("clkdiv %d len %d \n", clockdivideby,laststep);
 
-  if (!clockidle && (millis()-clocktimer) > CLOCK_RESET_MS) {
-    stepindex=0;
-    clockdivider=clockdivideby;
-    clockForceFirstStep=1; // first pulse after idle reset always starts sequence
-    gateout=GATELOW;
-    clockidle=1;
-    ratchet_active=0;
+  if (multiplyIndex) {
+    uint32_t target=multiplyAnchorUs+(uint64_t)multiplyPeriodUs*multiplyIndex/multiplyCount;
+    if ((int32_t)(nowUs-target) >= 0) {
+      uint32_t period=multiplyPeriodUs/multiplyCount;
+      // Drop stale events after a blocking UI/save operation instead of bursting.
+      if (nowUs-target < period) advanceSequence(nowUs, period);
+      do { ++multiplyIndex; }
+      while (multiplyIndex < multiplyCount &&
+             nowUs-multiplyAnchorUs >= (uint64_t)multiplyPeriodUs*multiplyIndex/multiplyCount);
+      if (multiplyIndex >= multiplyCount) multiplyIndex=0;
+    }
   }
 
   if (ratchet_active) {
-    uint32_t now=millis();
-    if ((int32_t)(now-ratchet_next_time) >= 0) {
+    uint32_t now=micros();
+    if ((int32_t)(now-ratchet_next_time) >= 0 && now-ratchet_next_time >= ratchet_interval) {
+      ratchet_active=0; // discard stale ratchets after a blocking operation
+    } else if ((int32_t)(now-ratchet_next_time) >= 0) {
       gateout=GATEHIGH;
       gatetimer=now;
       gatelength=ratchet_interval/2;
-      if (gatelength < 1) gatelength=1;
+      if (gatelength < MIN_GATE_US) gatelength=MIN_GATE_US;
       ++ratchet_index;
       if (ratchet_index >= ratchet_count) ratchet_active=0;
       else ratchet_next_time+=ratchet_interval;
     }
   }
 
-  if ((millis()-gatetimer) > gatelength) gateout=GATELOW;  // turn off gate after gate length
+  if ((micros()-gatetimer) >= gatelength) gateout=GATELOW;  // turn off gate after gate length
 
   if (!button && (millis()-ledtimer) > LEDOFF ) LEDS.show();  // update LEDs only if not doing off flash
 
